@@ -1,0 +1,13 @@
+{
+  "backend": "openclaw",
+  "upstream": { "release": "locked-fixture", "tag": "openclaw-fixture-v1", "commit": "fixture" },
+  "protocolVersion": "mobile-bridge-v1",
+  "capabilitySchemaHash": "fixture-capability-schema-v1",
+  "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
+  "profiles": [
+    { "kind": "chat", "id": "gateway", "authoritative": true },
+    { "kind": "tool", "id": "plugin", "authoritative": true },
+    { "kind": "event", "id": "plugin-hook", "authoritative": true }
+  ],
+  "zeroRetention": { "required": true, "profileId": "fixture-zero-retention-v1", "providerObjectRetention": "none", "bodyEgress": "fail_closed" }
+}
