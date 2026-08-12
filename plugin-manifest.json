@@ -10,5 +10,12 @@
     { "kind": "event", "id": "plugin-hook", "authoritative": true }
   ],
   "zeroRetention": { "required": true, "profileId": "fixture-zero-retention-v1", "providerObjectRetention": "none", "bodyEgress": "fail_closed" },
-  "tools": ["mobile.sms.query", "mobile.sms.subscribe", "mobile.sms.unsubscribe"]
+  "tools": [
+    "mobile.notifications.query",
+    "mobile.notifications.subscribe",
+    "mobile.notifications.unsubscribe",
+    "mobile.sms.query",
+    "mobile.sms.subscribe",
+    "mobile.sms.unsubscribe"
+  ]
 }

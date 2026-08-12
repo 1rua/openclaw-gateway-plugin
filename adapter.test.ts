@@ -31,6 +31,7 @@ describe("OpenClaw adapter", () => {
     await expect(adapter.invokeTool("mobile.sms.query", { toolCallId: "openclaw-sms", deviceId: "device-a", limit: 1 }))
       .resolves.toEqual([]);
     expect(OPENCLAW_PLUGIN_MANIFEST.tools).toEqual([
+      "mobile.notifications.query", "mobile.notifications.subscribe", "mobile.notifications.unsubscribe",
       "mobile.sms.query", "mobile.sms.subscribe", "mobile.sms.unsubscribe",
     ]);
   });
