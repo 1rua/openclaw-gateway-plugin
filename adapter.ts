@@ -1,5 +1,6 @@
 import {
   createFakeAdapter,
+  FROZEN_SMS_TOOLS,
   type AdapterOptions,
   type AdapterProfile,
   type FakeAdapter,
@@ -17,6 +18,7 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     Object.freeze({ kind: "event", id: "plugin-hook", authoritative: true }),
   ] as const),
   zeroRetention: Object.freeze({ required: true, profileId: "fixture-zero-retention-v1", providerObjectRetention: "none", bodyEgress: "fail_closed" }),
+  tools: FROZEN_SMS_TOOLS,
 });
 
 export type OpenClawAdapterOptions = Omit<AdapterOptions, "profiles"> & Readonly<{ profiles?: readonly AdapterProfile[] }>;
