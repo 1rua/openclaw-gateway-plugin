@@ -14,6 +14,15 @@ describe("OpenClaw adapter", () => {
     expect(adapter.binding()).toMatchObject({ tenantId: "tenant-a", deviceId: "device-a" });
   });
 
+  it("accepts the shared bounded audio attachment contract", async () => {
+    const adapter = createOpenClawAdapter({ context: fixtureContext(), zeroRetention: fixtureZeroRetentionEvidence() });
+    await adapter.pair(fixtureBinding());
+    await expect(adapter.sendAssistantMessage({
+      messageId: "voice-1", text: "analyze this",
+      attachments: [{ kind: "audio", artifactId: "artifact-audio", filename: "voice.m4a", mimeType: "audio/mp4", sizeBytes: 512, sha256: "c".repeat(64), durationMs: 5000 }],
+    })).resolves.toMatchObject({ status: "accepted" });
+  });
+
   it("normalizes its result without backend-specific identity fields", async () => {
     const adapter = createOpenClawAdapter({ context: fixtureContext(), zeroRetention: fixtureZeroRetentionEvidence() });
     await adapter.pair(fixtureBinding());
