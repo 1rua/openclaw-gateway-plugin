@@ -1,6 +1,6 @@
 {
   "backend": "openclaw",
-  "upstream": { "release": "locked-fixture", "tag": "openclaw-fixture-v1", "commit": "fixture" },
+  "upstream": { "release": "latest-stable", "tag": "openclaw-fixture-v1", "commit": "fixture" },
   "protocolVersion": "mobile-bridge-v1",
   "capabilitySchemaHash": "fixture-capability-schema-v1",
   "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
