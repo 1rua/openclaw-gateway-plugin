@@ -29,4 +29,19 @@ describe("OpenClaw adapter", () => {
     const response = await adapter.sendAssistantMessage({ messageId: "m-1", text: "hello" });
     expect(Object.keys(response).sort()).toEqual(["messageId", "reply", "status"]);
   });
+
+  it("routes the closed SMS operations through the shared adapter", async () => {
+    const adapter = createOpenClawAdapter({
+      context: fixtureContext(),
+      zeroRetention: fixtureZeroRetentionEvidence(),
+      onDemandSms: async () => [],
+    });
+    await adapter.pair(fixtureBinding());
+    await expect(adapter.invokeTool("mobile.sms.query", { toolCallId: "openclaw-sms", deviceId: "device-a", limit: 1 }))
+      .resolves.toEqual([]);
+    expect(OPENCLAW_PLUGIN_MANIFEST.tools).toEqual([
+      "mobile.notifications.query", "mobile.notifications.subscribe", "mobile.notifications.unsubscribe",
+      "mobile.sms.query", "mobile.sms.subscribe", "mobile.sms.unsubscribe",
+    ]);
+  });
 });
