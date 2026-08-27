@@ -44,6 +44,8 @@ export type VerifiedGatewayRequest = Readonly<{
   target: string;
   body?: unknown;
   idempotencyKey?: string;
+  lastEventId?: string;
+  now?: Date;
 }>;
 
 export type GatewayResponse = Readonly<{
@@ -109,37 +111,82 @@ const bodyRecord = (value: unknown): Readonly<Record<string, unknown>> => {
   return value as Readonly<Record<string, unknown>>;
 };
 
+const gatewayErrorCode = (error: unknown): string => {
+  const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
+  const known = new Set([
+    "SCHEMA_INVALID",
+    "IDENTITY_OVERRIDE_REJECTED",
+    "PAIRING_GENERATION_STALE",
+    "GRANT_STALE",
+    "IDEMPOTENCY_CONFLICT",
+    "OUTCOME_UNKNOWN",
+    "ATTACHMENT_DIGEST_MISMATCH",
+    "ATTACHMENT_EXPIRED",
+    "CURSOR_CONFLICT",
+    "CURSOR_EXPIRED",
+  ]);
+  return known.has(code) ? code : "INTERNAL_ERROR";
+};
+
+const assertNoIdentityOverride = (value: unknown): void => {
+  if (value && typeof value === "object") {
+    const encoded = JSON.stringify(value);
+    if (/"(?:accountId|deviceId|principalId|pairingGeneration)"\s*:/.test(encoded)) {
+      throw new Error("IDENTITY_OVERRIDE_REJECTED");
+    }
+  }
+};
+
+const cursorExpiredDetails = Object.freeze({
+  recoverableResources: Object.freeze(["conversations", "attachments", "device-requests"] as const),
+});
+
 const runIdempotent = (
   account: GatewayAccount,
   request: VerifiedGatewayRequest,
   work: () => GatewayResponse,
+  validateReplay?: () => string | undefined,
 ): GatewayResponse => {
   if (request.method === "GET") return work();
   if (request.idempotencyKey !== request.context.requestId) return failure(request, "IDEMPOTENCY_CONFLICT");
+  const now = request.now ?? new Date();
   const inputHash = createHash("sha256")
     .update(canonicalJson({ method: request.method, target: request.target, body: request.body }), "utf8")
     .digest("hex");
-  const existing = account.store.database
-    .prepare("SELECT input_hash, outcome_json FROM idempotency_ledger WHERE device_id = ? AND request_id = ?")
-    .get(request.context.deviceId, request.context.requestId) as Record<string, unknown> | undefined;
-  if (existing !== undefined) {
-    if (String(existing.input_hash) !== inputHash) return failure(request, "IDEMPOTENCY_CONFLICT");
-    return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
-  }
-  const response = work();
-  account.store.database
-    .prepare(`
-      INSERT INTO idempotency_ledger(device_id, request_id, input_hash, outcome_json, expires_at)
-      VALUES (?, ?, ?, ?, ?)
-    `)
-    .run(
-      request.context.deviceId,
-      request.context.requestId,
-      inputHash,
-      JSON.stringify(response),
-      new Date(Date.now() + 86_400_000).toISOString(),
-    );
-  return response;
+  return account.store.transaction(() => {
+    const existing = account.store.database
+      .prepare("SELECT input_hash, outcome_json, expires_at FROM idempotency_ledger WHERE device_id = ? AND request_id = ?")
+      .get(request.context.deviceId, request.context.requestId) as Record<string, unknown> | undefined;
+    if (existing !== undefined) {
+      if (String(existing.input_hash) !== inputHash) return failure(request, "IDEMPOTENCY_CONFLICT");
+      if (Date.parse(String(existing.expires_at)) <= now.getTime()) {
+        return failure(request, "OUTCOME_UNKNOWN");
+      }
+      const replayError = validateReplay?.();
+      if (replayError !== undefined) return failure(request, replayError);
+      return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
+    }
+
+    let response: GatewayResponse;
+    try {
+      response = work();
+    } catch (error) {
+      response = failure(request, gatewayErrorCode(error));
+    }
+    account.store.database
+      .prepare(`
+        INSERT INTO idempotency_ledger(device_id, request_id, input_hash, outcome_json, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      .run(
+        request.context.deviceId,
+        request.context.requestId,
+        inputHash,
+        JSON.stringify(response),
+        new Date(now.getTime() + 30 * 86_400_000).toISOString(),
+      );
+    return response;
+  });
 };
 
 const buildAccount = (root: string, accountId: string): GatewayAccount => {
@@ -175,17 +222,49 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       try {
         const account = buildAccount(root, request.context.accountId);
         try {
-          if (request.body && typeof request.body === "object") {
-            const encoded = JSON.stringify(request.body);
-            if (/"(?:accountId|deviceId|principalId)"\s*:/.test(encoded)) {
-              return failure(request, "IDENTITY_OVERRIDE_REJECTED");
-            }
-          }
+          assertNoIdentityOverride(request.body);
           if (request.method === "GET" && request.target.startsWith("/agent-life/v2/events")) {
             const cursor = new URL(`https://gateway.local${request.target}`).searchParams.get("cursor");
-            const events = account.events.readAfter(cursor);
-            return success(request, { events });
+            if (request.lastEventId !== undefined && request.lastEventId !== cursor) {
+              return failure(request, "CURSOR_CONFLICT");
+            }
+            try {
+              const events = account.events.readAfter(cursor, request.now);
+              return success(request, { events });
+            } catch (error) {
+              if (gatewayErrorCode(error) === "CURSOR_EXPIRED") {
+                return failure(request, "CURSOR_EXPIRED", cursorExpiredDetails);
+              }
+              throw error;
+            }
           }
+          const claimMatch = request.method === "POST"
+            ? request.target.match(/^\/agent-life\/v2\/device-requests\/([^/]+)\/claim$/)
+            : undefined;
+          const resultMatch = request.method === "POST"
+            ? request.target.match(/^\/agent-life\/v2\/device-requests\/([^/]+)\/result$/)
+            : undefined;
+          const validateReplay = claimMatch?.[1]
+            ? () => account.deviceRequests.validateClaimReplay({
+                requestId: claimMatch[1],
+                deviceId: request.context.deviceId,
+                pairingGeneration: request.context.pairingGeneration,
+                grantRevision: request.context.grantRevision,
+                now: request.now,
+              })
+            : resultMatch?.[1]
+              ? () => {
+                  const body = bodyRecord(request.body);
+                  return account.deviceRequests.validateResultReplay({
+                    requestId: resultMatch[1],
+                    deviceId: request.context.deviceId,
+                    pairingGeneration: request.context.pairingGeneration,
+                    grantRevision: request.context.grantRevision,
+                    claimId: String(body.claimId),
+                    now: request.now,
+                  });
+                }
+              : undefined;
           return runIdempotent(account, request, () => {
             if (request.method === "POST" && request.target === "/agent-life/v2/conversations") {
               assertSchema("conversation.create", request.body);
@@ -243,7 +322,6 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 attachment: account.attachments.commit(attachmentCommitMatch[1]),
               });
             }
-            const claimMatch = request.target.match(/^\/agent-life\/v2\/device-requests\/([^/]+)\/claim$/);
             if (request.method === "POST" && claimMatch?.[1]) {
               return success(request, {
                 receipt: account.deviceRequests.claim({
@@ -252,31 +330,35 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                   pairingGeneration: request.context.pairingGeneration,
                   grantRevision: request.context.grantRevision,
                   correlationId: request.context.correlationId,
+                  now: request.now,
                 }),
               });
             }
-            const resultMatch = request.target.match(/^\/agent-life\/v2\/device-requests\/([^/]+)\/result$/);
             if (request.method === "POST" && resultMatch?.[1]) {
               const body = bodyRecord(request.body);
+              if (Number(body.grantRevision) !== request.context.grantRevision) {
+                throw new Error("GRANT_STALE");
+              }
               return success(request, {
                 deviceRequest: account.deviceRequests.submitResult({
                   requestId: resultMatch[1],
                   deviceId: request.context.deviceId,
                   pairingGeneration: request.context.pairingGeneration,
-                  grantRevision: Number(body.grantRevision),
+                  grantRevision: request.context.grantRevision,
                   claimId: String(body.claimId),
                   result: body.result as { outcome: "succeeded" | "failed" | "denied" | "cancelled" | "outcome_unknown" },
                   correlationId: request.context.correlationId,
+                  now: request.now,
                 }),
               });
             }
             return failure(request, "SCHEMA_INVALID");
-          });
+          }, validateReplay);
         } finally {
           account.close();
         }
       } catch (error) {
-        return failure(request, error instanceof Error ? error.message : "INTERNAL_ERROR");
+        return failure(request, gatewayErrorCode(error));
       }
     },
   });

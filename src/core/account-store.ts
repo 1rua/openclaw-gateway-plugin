@@ -140,16 +140,20 @@ const ensureMetadata = (database: DatabaseSync, key: string, value: string): voi
 export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   ensureAccountDirectories(paths);
   const database = new DatabaseSync(paths.database);
+  let transactionDepth = 0;
   migrate(database);
   ensureMetadata(database, "master_key_ref", `host-secret:${paths.root.split("/").at(-1) ?? "account"}`);
   ensureMetadata(database, "gateway_identity_ref", "spki_initial");
   return Object.freeze({
     database,
     transaction: <T>(work: () => T): T => {
+      if (transactionDepth > 0) return work();
       database.exec("BEGIN IMMEDIATE");
+      transactionDepth += 1;
       try {
         const result = work();
         database.exec("COMMIT");
+        transactionDepth -= 1;
         return result;
       } catch (error) {
         try {
@@ -158,6 +162,7 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
           // Some security paths commit their revocation evidence before returning
           // an error so the failure itself cannot roll back the protection.
         }
+        transactionDepth -= 1;
         throw error;
       }
     },

@@ -30,6 +30,10 @@ export type DeviceRequestRecord = Readonly<{
 }>;
 
 type ResultOutcome = "succeeded" | "failed" | "denied" | "cancelled" | "outcome_unknown";
+type ClaimTransactionResult = Readonly<
+  | { kind: "expired" }
+  | { kind: "receipt"; receipt: ClaimReceipt }
+>;
 
 export class DeviceRequestStore {
   constructor(
@@ -95,19 +99,39 @@ export class DeviceRequestStore {
     correlationId: string;
     now?: Date;
   }>): ClaimReceipt {
-    return this.store.transaction(() => {
+    const outcome = this.store.transaction<ClaimTransactionResult>(() => {
+      const request = this.getRow(input.requestId);
+      this.assertBinding(request, input.deviceId, input.pairingGeneration, input.grantRevision);
+      if (this.expireIfDue(request, input.now ?? new Date())) return { kind: "expired" };
+
       const existing = this.store.database
         .prepare("SELECT * FROM claim_receipts WHERE request_id = ?")
         .get(input.requestId) as Record<string, unknown> | undefined;
-      if (existing !== undefined) return this.mapReceipt(existing);
+      if (existing !== undefined) {
+        this.assertBinding(existing, input.deviceId, input.pairingGeneration, input.grantRevision);
+        return { kind: "receipt", receipt: this.mapReceipt(existing) };
+      }
 
-      const request = this.getRow(input.requestId);
-      this.assertBinding(request, input.deviceId, input.pairingGeneration, input.grantRevision);
       const state = String(request.state) as DeviceRequestState;
       if (state !== "pending") throw new Error("OUTCOME_UNKNOWN");
-      this.store.database
-        .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
-        .run(nextDeviceRequestState(state, "claim"), input.requestId);
+      const claimed = this.store.database
+        .prepare(`
+          UPDATE device_requests
+          SET state = ?
+          WHERE request_id = ?
+            AND state = 'pending'
+            AND device_id = ?
+            AND pairing_generation = ?
+            AND grant_revision = ?
+        `)
+        .run(
+          nextDeviceRequestState(state, "claim"),
+          input.requestId,
+          input.deviceId,
+          input.pairingGeneration,
+          input.grantRevision,
+        ) as { changes: number };
+      if (claimed.changes !== 1) throw new Error("OUTCOME_UNKNOWN");
       const claimId = `claim_${randomUUID()}`;
       this.store.database
         .prepare(`
@@ -131,14 +155,39 @@ export class DeviceRequestStore {
         correlationId: input.correlationId,
         occurredAt: (input.now ?? new Date()).toISOString(),
       });
-      return Object.freeze({
-        claimId,
-        requestId: input.requestId,
-        accountId: this.accountId,
-        deviceId: input.deviceId,
-        pairingGeneration: input.pairingGeneration,
-        grantRevision: input.grantRevision,
-      });
+      return {
+        kind: "receipt",
+        receipt: Object.freeze({
+          claimId,
+          requestId: input.requestId,
+          accountId: this.accountId,
+          deviceId: input.deviceId,
+          pairingGeneration: input.pairingGeneration,
+          grantRevision: input.grantRevision,
+        }),
+      };
+    });
+    if (outcome.kind === "expired") throw new Error("OUTCOME_UNKNOWN");
+    return outcome.receipt;
+  }
+
+  validateClaimReplay(input: Readonly<{
+    requestId: string;
+    deviceId: string;
+    pairingGeneration: number;
+    grantRevision: number;
+    now?: Date;
+  }>): "OUTCOME_UNKNOWN" | undefined {
+    return this.store.transaction(() => {
+      const request = this.getRow(input.requestId);
+      this.assertBinding(request, input.deviceId, input.pairingGeneration, input.grantRevision);
+      if (this.expireIfDue(request, input.now ?? new Date())) return "OUTCOME_UNKNOWN";
+      const receipt = this.store.database
+        .prepare("SELECT * FROM claim_receipts WHERE request_id = ?")
+        .get(input.requestId) as Record<string, unknown> | undefined;
+      if (receipt === undefined) throw new Error("OUTCOME_UNKNOWN");
+      this.assertBinding(receipt, input.deviceId, input.pairingGeneration, input.grantRevision);
+      return undefined;
     });
   }
 
@@ -152,9 +201,10 @@ export class DeviceRequestStore {
     correlationId: string;
     now?: Date;
   }>): DeviceRequestRecord {
-    return this.store.transaction(() => {
+    const outcome = this.store.transaction<DeviceRequestRecord | "OUTCOME_UNKNOWN">(() => {
       const request = this.getRow(input.requestId);
       this.assertBinding(request, input.deviceId, input.pairingGeneration, input.grantRevision);
+      if (this.expireIfDue(request, input.now ?? new Date())) return "OUTCOME_UNKNOWN";
       const receipt = this.store.database
         .prepare("SELECT * FROM claim_receipts WHERE request_id = ? AND claim_id = ?")
         .get(input.requestId, input.claimId) as Record<string, unknown> | undefined;
@@ -162,6 +212,7 @@ export class DeviceRequestStore {
       this.assertBinding(receipt, input.deviceId, input.pairingGeneration, input.grantRevision);
 
       const state = String(request.state) as DeviceRequestState;
+      if (state !== "claimed" && state !== "cancel_requested") return "OUTCOME_UNKNOWN";
       const event = `result_${input.result.outcome}` as const;
       const next = input.result.outcome === "outcome_unknown"
         ? nextDeviceRequestState(state, "result_outcome_unknown")
@@ -177,6 +228,29 @@ export class DeviceRequestStore {
         occurredAt: (input.now ?? new Date()).toISOString(),
       });
       return this.get(input.requestId);
+    });
+    if (outcome === "OUTCOME_UNKNOWN") throw new Error(outcome);
+    return outcome;
+  }
+
+  validateResultReplay(input: Readonly<{
+    requestId: string;
+    deviceId: string;
+    pairingGeneration: number;
+    grantRevision: number;
+    claimId: string;
+    now?: Date;
+  }>): "OUTCOME_UNKNOWN" | undefined {
+    return this.store.transaction(() => {
+      const request = this.getRow(input.requestId);
+      this.assertBinding(request, input.deviceId, input.pairingGeneration, input.grantRevision);
+      if (this.expireIfDue(request, input.now ?? new Date())) return "OUTCOME_UNKNOWN";
+      const receipt = this.store.database
+        .prepare("SELECT * FROM claim_receipts WHERE request_id = ? AND claim_id = ?")
+        .get(input.requestId, input.claimId) as Record<string, unknown> | undefined;
+      if (receipt === undefined) throw new Error("OUTCOME_UNKNOWN");
+      this.assertBinding(receipt, input.deviceId, input.pairingGeneration, input.grantRevision);
+      return undefined;
     });
   }
 
@@ -218,11 +292,22 @@ export class DeviceRequestStore {
   ): void {
     if (
       String(row.device_id) !== deviceId ||
-      Number(row.pairing_generation) !== pairingGeneration ||
-      Number(row.grant_revision) !== grantRevision
+      Number(row.pairing_generation) !== pairingGeneration
     ) {
       throw new Error("PAIRING_GENERATION_STALE");
     }
+    if (Number(row.grant_revision) !== grantRevision) throw new Error("GRANT_STALE");
+  }
+
+  private expireIfDue(row: Record<string, unknown>, now: Date): boolean {
+    if (Date.parse(String(row.expires_at)) > now.getTime()) return false;
+    const state = String(row.state) as DeviceRequestState;
+    if (state !== "pending" && state !== "claimed" && state !== "cancel_requested") return false;
+    const event = state === "pending" ? "expire" : "recover_outcome_unknown";
+    this.store.database
+      .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
+      .run(nextDeviceRequestState(state, event), String(row.request_id));
+    return true;
   }
 
   private mapRequest(row: Record<string, unknown>): DeviceRequestRecord {

@@ -74,6 +74,7 @@ describe("OpenClaw Gateway device request queue", () => {
         claimId: "claim_missing",
         result: { outcome: "succeeded", data: { ok: true } },
         correlationId: "cor_unclaimed",
+        now: new Date("2026-08-24T12:01:00.000Z"),
       }),
     ).toThrowError("OUTCOME_UNKNOWN");
 
@@ -83,6 +84,7 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       correlationId: "cor_claim",
+      now: new Date("2026-08-24T12:02:00.000Z"),
     });
     expect(alice.deviceRequests.claim({
       requestId: "device_req_read",
@@ -90,7 +92,28 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       correlationId: "cor_claim_retry",
+      now: new Date("2026-08-24T12:03:00.000Z"),
     })).toEqual(claim);
+    expect(() =>
+      alice.deviceRequests.claim({
+        requestId: "device_req_read",
+        deviceId: "dev_2",
+        pairingGeneration: 4,
+        grantRevision: 7,
+        correlationId: "cor_claim_wrong_device",
+        now: new Date("2026-08-24T12:04:00.000Z"),
+      }),
+    ).toThrowError("PAIRING_GENERATION_STALE");
+    expect(() =>
+      alice.deviceRequests.claim({
+        requestId: "device_req_read",
+        deviceId: "dev_1",
+        pairingGeneration: 4,
+        grantRevision: 8,
+        correlationId: "cor_claim_wrong_grant",
+        now: new Date("2026-08-24T12:04:00.000Z"),
+      }),
+    ).toThrowError("GRANT_STALE");
     expect(() =>
       alice.deviceRequests.submitResult({
         requestId: "device_req_read",
@@ -100,6 +123,7 @@ describe("OpenClaw Gateway device request queue", () => {
         claimId: claim.claimId,
         result: { outcome: "succeeded", data: { ok: true } },
         correlationId: "cor_wrong_device",
+        now: new Date("2026-08-24T12:04:00.000Z"),
       }),
     ).toThrowError("PAIRING_GENERATION_STALE");
     expect(() =>
@@ -111,6 +135,7 @@ describe("OpenClaw Gateway device request queue", () => {
         claimId: claim.claimId,
         result: { outcome: "succeeded", data: { ok: true } },
         correlationId: "cor_cross_account",
+        now: new Date("2026-08-24T12:04:00.000Z"),
       }),
     ).toThrowError("OUTCOME_UNKNOWN");
 
@@ -122,6 +147,7 @@ describe("OpenClaw Gateway device request queue", () => {
       claimId: claim.claimId,
       result: { outcome: "succeeded", data: { ok: true } },
       correlationId: "cor_result",
+      now: new Date("2026-08-24T12:05:00.000Z"),
     });
     expect(result.state).toBe("succeeded");
 
@@ -131,6 +157,7 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       correlationId: "cor_claim_write",
+      now: new Date("2026-08-24T12:05:00.000Z"),
     });
     alice.close();
     const reopened = await createGatewayCore({ storageRoot }).openGatewayAccount("acct_alice");
@@ -139,5 +166,76 @@ describe("OpenClaw Gateway device request queue", () => {
 
     reopened.close();
     bob.close();
+  });
+
+  it("expires pending and claimed requests at claim/result entry without relying on manual recovery", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const alice = await core.openGatewayAccount("acct_alice");
+
+    alice.deviceRequests.enqueue({
+      requestId: "device_req_expired_pending",
+      deviceId: "dev_1",
+      pairingGeneration: 2,
+      grantRevision: 3,
+      risk: "write",
+      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      provider: {
+        pluginId: "org.agentlife.sms",
+        authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+      parameters: {},
+      correlationId: "cor_expired_pending",
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    expect(() =>
+      alice.deviceRequests.claim({
+        requestId: "device_req_expired_pending",
+        deviceId: "dev_1",
+        pairingGeneration: 2,
+        grantRevision: 3,
+        correlationId: "cor_late_claim",
+        now: new Date("2026-08-27T00:16:00.000Z"),
+      }),
+    ).toThrowError("OUTCOME_UNKNOWN");
+    expect(alice.deviceRequests.get("device_req_expired_pending").state).toBe("expired");
+
+    alice.deviceRequests.enqueue({
+      requestId: "device_req_expired_claimed",
+      deviceId: "dev_1",
+      pairingGeneration: 2,
+      grantRevision: 3,
+      risk: "write",
+      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      provider: {
+        pluginId: "org.agentlife.sms",
+        authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+      parameters: {},
+      correlationId: "cor_claimed",
+      now: new Date("2026-08-27T01:00:00.000Z"),
+    });
+    const claim = alice.deviceRequests.claim({
+      requestId: "device_req_expired_claimed",
+      deviceId: "dev_1",
+      pairingGeneration: 2,
+      grantRevision: 3,
+      correlationId: "cor_claimed_claim",
+      now: new Date("2026-08-27T01:01:00.000Z"),
+    });
+    expect(() =>
+      alice.deviceRequests.submitResult({
+        requestId: "device_req_expired_claimed",
+        deviceId: "dev_1",
+        pairingGeneration: 2,
+        grantRevision: 3,
+        claimId: claim.claimId,
+        result: { outcome: "succeeded", data: { ok: true } },
+        correlationId: "cor_late_result",
+        now: new Date("2026-08-27T01:16:00.000Z"),
+      }),
+    ).toThrowError("OUTCOME_UNKNOWN");
+    expect(alice.deviceRequests.get("device_req_expired_claimed").state).toBe("outcome_unknown");
+
+    alice.close();
   });
 });
