@@ -1,0 +1,9 @@
+{
+  "name": "@agent-life/openclaw",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "../../tools/run-node24 npx vitest run",
+    "typecheck": "../../tools/run-node24 npx tsc --noEmit --ignoreConfig --types node --module NodeNext --moduleResolution NodeNext --target ES2022 --strict --skipLibCheck *.ts src/core/*.ts test/*.ts"
+  }
+}
