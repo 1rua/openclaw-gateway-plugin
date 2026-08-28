@@ -1,15 +1,20 @@
 {
+  "id": "agent-life-gateway",
   "backend": "openclaw",
-  "upstream": { "release": "latest-stable", "tag": "openclaw-fixture-v1", "commit": "fixture" },
-  "protocolVersion": "mobile-bridge-v1",
-  "capabilitySchemaHash": "fixture-capability-schema-v1",
+  "upstream": { "release": "2026.7.1-2", "tag": "v2026.7.1-2", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
+  "protocolVersion": "gateway-protocol-v2",
+  "capabilitySchemaHash": "gateway-protocol-v2",
+  "hostApi": { "min": "2026.7.1", "max": "2026.7.1", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
   "profiles": [
     { "kind": "chat", "id": "gateway", "authoritative": true },
     { "kind": "tool", "id": "plugin", "authoritative": true },
     { "kind": "event", "id": "plugin-hook", "authoritative": true }
   ],
-  "zeroRetention": { "required": true, "profileId": "fixture-zero-retention-v1", "providerObjectRetention": "none", "bodyEgress": "fail_closed" },
+  "zeroRetention": { "required": true, "profileId": "openclaw-zero-retention-v2", "providerObjectRetention": "none", "bodyEgress": "fail_closed" },
+  "exposureModes": ["host-route", "loopback-reverse-proxy", "direct-tls"],
+  "management": { "surface": "host-ui-and-local-cli", "localOnly": true, "remotePort": null, "sensitiveOperations": "local-confirmation" },
+  "securityBoundary": { "rawHeaders": "delegated-to-verified-request-seam", "ed25519": "not-implemented-in-task-4", "tls": "host-or-explicit-terminator" },
   "tools": [
     "mobile.notifications.query",
     "mobile.notifications.subscribe",
