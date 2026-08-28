@@ -171,42 +171,45 @@ export class AttachmentStore {
   }
 
   cleanup(): number {
-    this.reconcileStagedFiles();
-    let cleaned = 0;
-    const rows = this.store.database
-      .prepare("SELECT attachment_id FROM attachments WHERE content_path IS NOT NULL AND state IN ('acknowledged', 'failed', 'expired')")
-      .all() as Record<string, unknown>[];
-    for (const row of rows) {
-      let contentPath: string | null = null;
-      let transitioned = false;
-      this.store.transaction(() => {
-        const current = this.getRow(String(row.attachment_id));
+    let deletedFiles = 0;
+    const pathsToDelete = new Set<string>();
+    this.store.transaction(() => {
+      const protectedPaths = this.reconcileStagedFiles();
+      const rows = this.store.database
+        .prepare("SELECT attachment_id FROM attachments WHERE content_path IS NOT NULL AND state IN ('acknowledged', 'failed', 'expired')")
+        .all() as Record<string, unknown>[];
+      for (const row of rows) {
+        const attachmentId = String(row.attachment_id);
+        const current = this.getRow(attachmentId);
         const state = String(current.state) as AttachmentState;
-        if (!cleanupStates.includes(state)) return;
-        contentPath = this.optionalContentPath(current);
-        if (contentPath === null) return;
+        if (!cleanupStates.includes(state)) continue;
+        const contentPath = this.optionalContentPath(current);
+        if (contentPath === null) continue;
         this.store.database
           .prepare("UPDATE attachments SET state = ?, content_path = NULL WHERE attachment_id = ?")
-          .run(nextAttachmentState(state, "cleanup"), String(row.attachment_id));
-        transitioned = true;
-      }, {
-        onCommit: () => {
-          if (contentPath !== null) this.removeIfPresentSafely(contentPath);
-        },
-      });
-      if (transitioned) cleaned += 1;
-    }
+          .run(nextAttachmentState(state, "cleanup"), attachmentId);
+        pathsToDelete.add(contentPath);
+      }
 
-    const referencedPaths = new Set(
-      (this.store.database
-        .prepare("SELECT content_path FROM attachments WHERE content_path IS NOT NULL")
-        .all() as Record<string, unknown>[])
-        .map((row) => String(row.content_path)),
-    );
-    for (const stagedPath of this.stagedPaths()) {
-      if (!referencedPaths.has(stagedPath) && this.removeIfPresentSafely(stagedPath)) cleaned += 1;
-    }
-    return cleaned;
+      const referencedPaths = new Set(
+        (this.store.database
+          .prepare("SELECT content_path FROM attachments WHERE content_path IS NOT NULL")
+          .all() as Record<string, unknown>[])
+          .map((row) => String(row.content_path)),
+      );
+      for (const stagedPath of this.stagedPaths()) {
+        if (!protectedPaths.has(stagedPath) && !referencedPaths.has(stagedPath)) {
+          pathsToDelete.add(stagedPath);
+        }
+      }
+    }, {
+      onCommit: () => {
+        for (const path of pathsToDelete) {
+          if (this.removeIfPresentSafely(path)) deletedFiles += 1;
+        }
+      },
+    });
+    return deletedFiles;
   }
 
   get(attachmentId: string): AttachmentRecord {
@@ -247,17 +250,20 @@ export class AttachmentStore {
     }
   }
 
-  private reconcileStagedFiles(): void {
+  private reconcileStagedFiles(): ReadonlySet<string> {
+    const protectedPaths = new Set<string>();
     for (const stagedPath of this.stagedPaths()) {
       const suffix = ".stage";
       const fileName = stagedPath.slice(this.paths.attachments.length + 1);
-      this.reconcileStagedFile(fileName.slice(0, -suffix.length), "startup");
+      const attachmentId = fileName.slice(0, -suffix.length);
+      if (this.reconcileStagedFile(attachmentId, "startup")) protectedPaths.add(stagedPath);
     }
+    return protectedPaths;
   }
 
-  private reconcileStagedFile(attachmentId: string, reason: "rollback" | "startup"): void {
+  private reconcileStagedFile(attachmentId: string, reason: "rollback" | "startup"): boolean {
     const stagedPath = this.contentPath(attachmentId);
-    if (!existsSync(stagedPath)) return;
+    if (!existsSync(stagedPath)) return false;
 
     let repaired = false;
     try {
@@ -278,7 +284,7 @@ export class AttachmentStore {
       });
     } catch {
       // Keep the deterministic stage path. A later open/cleanup scan can retry it.
-      return;
+      return true;
     }
 
     if (repaired) {
@@ -294,6 +300,7 @@ export class AttachmentStore {
         // Reconciliation metadata is best effort; the row and stage path are durable.
       }
     }
+    return false;
   }
 
   private getRow(attachmentId: string): Record<string, unknown> {
@@ -330,15 +337,18 @@ export class AttachmentStore {
     return contentPath;
   }
 
-  private removeIfPresent(path: string): void {
-    if (existsSync(path)) unlinkSync(path);
+  private removeIfPresent(path: string): boolean {
+    if (!existsSync(path)) return false;
+    unlinkSync(path);
+    return true;
   }
 
-  private removeIfPresentSafely(path: string): void {
+  private removeIfPresentSafely(path: string): boolean {
     try {
-      this.removeIfPresent(path);
+      return this.removeIfPresent(path);
     } catch {
       // The DB no longer references this path; the orphan scan can retry cleanup.
+      return false;
     }
   }
 }

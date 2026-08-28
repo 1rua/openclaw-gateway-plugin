@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -233,5 +233,71 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
     expect(cleaned.content_path).toBeNull();
     expect(existsSync(expectedPath)).toBe(false);
     reopened.close();
+  });
+
+  it("protects a recoverable staged file when reconciliation fails and retries on the next scan", async () => {
+    const storageRoot = tempRoot();
+    const core = createGatewayCore({ storageRoot });
+    const account = await core.openGatewayAccount("acct_alice");
+    const body = new TextEncoder().encode("reconciliation must fail closed");
+    const attachment = account.attachments.create({
+      clientAttachmentId: "att_reconcile_protected",
+      filename: "reconcile.txt",
+      mediaType: "text/plain",
+      sizeBytes: body.byteLength,
+      sha256: sha256(body),
+      correlationId: "cor_reconcile_protected",
+      expiresAt: "2030-01-01T00:10:00.000Z",
+      now: new Date("2030-01-01T00:00:00.000Z"),
+    });
+    const stagedPath = join(account.paths.attachments, `${attachment.attachmentId}.stage`);
+    writeFileSync(stagedPath, body, { mode: 0o600 });
+    account.store.database.exec(`
+      CREATE TRIGGER fail_reconcile_repair
+      BEFORE UPDATE OF state, content_path ON attachments
+      WHEN OLD.attachment_id = '${attachment.attachmentId}'
+        AND OLD.content_path IS NULL
+        AND NEW.content_path IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'reconciliation forced failure');
+      END;
+    `);
+
+    expect(account.attachments.cleanup()).toBe(0);
+    expect(existsSync(stagedPath)).toBe(true);
+    const unrepaired = account.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    expect(unrepaired.state).toBe("created");
+    expect(unrepaired.content_path).toBeNull();
+
+    account.store.database.exec("DROP TRIGGER fail_reconcile_repair");
+    expect(account.attachments.cleanup()).toBe(0);
+    const repaired = account.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    expect(repaired.state).toBe("uploading");
+    expect(repaired.content_path).toBe(stagedPath);
+    expect(existsSync(stagedPath)).toBe(true);
+
+    expect(account.attachments.expireDue(new Date("2030-01-01T00:10:01.000Z"))).toBe(1);
+    const expired = account.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    expect(expired.state).toBe("expired");
+    expect(expired.content_path).toBeNull();
+    expect(existsSync(stagedPath)).toBe(false);
+    account.close();
+  });
+
+  it("reports the number of orphan stage files actually deleted", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const account = await core.openGatewayAccount("acct_alice");
+    const orphanPath = join(account.paths.attachments, "att_orphan_round3.stage");
+    writeFileSync(orphanPath, new TextEncoder().encode("orphan"), { mode: 0o600 });
+
+    expect(account.attachments.cleanup()).toBe(1);
+    expect(existsSync(orphanPath)).toBe(false);
+    account.close();
   });
 });
