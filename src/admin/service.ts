@@ -8,6 +8,7 @@ import {
 export type CreateAccountInput = Readonly<{
   accountId: string;
   displayName?: string;
+  localConfirmation?: boolean;
 }>;
 
 export type AdminCommand =
@@ -53,13 +54,13 @@ const validAccountId = (accountId: unknown): accountId is string =>
 const errorCode = (error: unknown): string => error instanceof Error ? error.message : "INTERNAL_ERROR";
 
 export class AdminService {
-  readonly hostVersion: string;
+  readonly hostVersion: string | undefined;
   readonly hostApi: HostApiCompatibility;
   readonly readOnly: boolean;
 
   constructor(
     private readonly core: GatewayCore,
-    options: Readonly<{ hostVersion: string; hostApi: HostApiCompatibility }>,
+    options: Readonly<{ hostVersion: string | undefined; hostApi: HostApiCompatibility }>,
   ) {
     this.hostVersion = options.hostVersion;
     this.hostApi = options.hostApi;
@@ -68,6 +69,7 @@ export class AdminService {
 
   async createAccount(input: CreateAccountInput): Promise<AdminResult> {
     if (this.readOnly) return failure("account.create", true, "HOST_INCOMPATIBLE");
+    if (input.localConfirmation !== true) return failure("account.create", false, "LOCAL_CONFIRMATION_REQUIRED");
     if (!validAccountId(input.accountId)) return failure("account.create", false, "SCHEMA_INVALID");
     try {
       const account = await this.core.openGatewayAccount(input.accountId);
@@ -80,7 +82,7 @@ export class AdminService {
 
   async status(): Promise<AdminResult> {
     return success("admin.status", this.readOnly, {
-      hostVersion: this.hostVersion,
+      hostVersion: this.hostVersion ?? null,
       minHostVersion: this.hostApi.minVersion,
       maxHostVersion: this.hostApi.maxVersion,
       verifiedHostCommit: this.hostApi.verifiedCommit,
@@ -99,7 +101,7 @@ export class AdminService {
 
 export const createAdminService = (options: AdminServiceOptions = {}): AdminService => {
   const hostApi = options.hostApi ?? OPENCLAW_HOST_API;
-  const hostVersion = options.hostVersion ?? hostApi.maxVersion;
+  const hostVersion = options.hostVersion;
   const core = options.core ?? createGatewayCore({ storageRoot: options.storageRoot });
   return new AdminService(core, { hostVersion, hostApi });
 };

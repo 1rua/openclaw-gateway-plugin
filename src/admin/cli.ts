@@ -20,16 +20,26 @@ const invalidArguments = (service: AdminService): AdminResult => Object.freeze({
 
 const parseCommand = (args: readonly string[], service: AdminService): AdminCommand | AdminResult => {
   const [first, second, third, ...rest] = args;
-  if (first === "account" && second === "create" && third !== undefined && rest.length === 0) {
-    return { command: "account.create", input: { accountId: third } };
+  if (first === "account" && second === "create" && third !== undefined) {
+    const localConfirmation = rest.length === 1 && rest[0] === "--confirm-local";
+    if (rest.length > 1 || (rest.length === 1 && !localConfirmation)) return invalidArguments(service);
+    return {
+      command: "account.create",
+      input: { accountId: third, ...(localConfirmation ? { localConfirmation: true } : {}) },
+    };
   }
-  if (first === "create-account" && second !== undefined && third === undefined) {
-    return { command: "account.create", input: { accountId: second } };
+  if (first === "create-account" && second !== undefined) {
+    const localConfirmation = third === "--confirm-local" && rest.length === 0;
+    if (third !== undefined && !localConfirmation) return invalidArguments(service);
+    return {
+      command: "account.create",
+      input: { accountId: second, ...(localConfirmation ? { localConfirmation: true } : {}) },
+    };
   }
   if (first === "status" && second === undefined && third === undefined) {
     return { command: "admin.status" };
   }
-  if (first === "account" && second === "status" && third === undefined) {
+  if (first === "account" && second === "status" && third === undefined && rest.length === 0) {
     return { command: "admin.status" };
   }
   if (first === "account" && second === "delete" && third !== undefined) {
@@ -40,29 +50,90 @@ const parseCommand = (args: readonly string[], service: AdminService): AdminComm
   return invalidArguments(service);
 };
 
-export const runAdminCommand = async (args: readonly string[]): Promise<AdminResult> => {
-  const service = boundAdminService ?? createAdminService();
+const executeAdminCommand = async (service: AdminService, args: readonly string[]): Promise<AdminResult> => {
   const command = parseCommand(args, service);
   if ("ok" in command) return command;
   return service.execute(command);
 };
 
+/** Stable local invocation entry shared with the registered CLI actions. */
+export const runAdminCommand = async (args: readonly string[]): Promise<AdminResult> =>
+  executeAdminCommand(boundAdminService ?? createAdminService(), args);
+
+/** Structural subset of the pinned Commander `Command` used by the host. */
+export type OpenClawCommand = {
+  command: (spec: string) => OpenClawCommand;
+  description: (value: string) => OpenClawCommand;
+  option: (flags: string, description?: string) => OpenClawCommand;
+  action: (handler: (...args: unknown[]) => unknown) => OpenClawCommand;
+};
+
+/** Mirrors the pinned OpenClawPluginCliContext field shape. */
 export type OpenClawCliContext = Readonly<{
-  args?: readonly string[];
+  program: OpenClawCommand;
+  parentPath: readonly string[];
+  config: unknown;
+  workspaceDir?: string;
+  logger: unknown;
 }>;
 
-const isArgumentList = (value: OpenClawCliContext | readonly string[]): value is readonly string[] =>
-  Array.isArray(value);
+export type OpenClawCliRegistrar = (context: OpenClawCliContext) => void | Promise<void>;
 
-export const createAdminCliRegistrar = (service: AdminService) => async (
-  context: OpenClawCliContext | readonly string[],
-): Promise<AdminResult> => {
-  const args = isArgumentList(context) ? context : context.args ?? [];
-  const previous = boundAdminService;
-  boundAdminService = service;
-  try {
-    return await runAdminCommand(args);
-  } finally {
-    boundAdminService = previous;
-  }
+export type OpenClawCliCommandDescriptor = {
+  name: string;
+  description: string;
+  hasSubcommands: boolean;
+};
+
+export type OpenClawCliRegistrationOptions = Readonly<{
+  parentPath?: string[];
+  commands?: string[];
+  descriptors?: OpenClawCliCommandDescriptor[];
+}>;
+
+const confirmedOption = (value: unknown): boolean => (
+  typeof value === "object"
+  && value !== null
+  && "confirmLocal" in value
+  && (value as { confirmLocal?: unknown }).confirmLocal === true
+);
+
+const registerAdminCommands = (context: OpenClawCliContext, service: AdminService): void => {
+  const root = context.program
+    .command("agent-life")
+    .description("Manage Agent-life Gateway accounts");
+  const account = root
+    .command("account")
+    .description("Manage Agent-life Gateway accounts");
+
+  account
+    .command("create <accountId>")
+    .description("Create a Gateway account")
+    .option("--confirm-local", "Confirm this write on the local host")
+    .action((accountId, options) => executeAdminCommand(service, [
+      "account",
+      "create",
+      String(accountId),
+      ...(confirmedOption(options) ? ["--confirm-local"] : []),
+    ]));
+
+  account
+    .command("status")
+    .description("Show Gateway account status")
+    .action(() => executeAdminCommand(service, ["account", "status"]));
+
+  account
+    .command("delete <accountId>")
+    .description("Delete a Gateway account")
+    .option("--confirm-local", "Confirm this write on the local host")
+    .action((accountId, options) => executeAdminCommand(service, [
+      "account",
+      "delete",
+      String(accountId),
+      ...(confirmedOption(options) ? ["--confirm-local"] : []),
+    ]));
+};
+
+export const createAdminCliRegistrar = (service: AdminService): OpenClawCliRegistrar => async (context) => {
+  registerAdminCommands(context, service);
 };

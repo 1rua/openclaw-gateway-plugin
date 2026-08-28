@@ -1,5 +1,10 @@
 import { createGatewayCore, type GatewayCore } from "../core/gateway-core.js";
-import { createAdminCliRegistrar, bindAdminService, type OpenClawCliContext } from "../admin/cli.js";
+import {
+  createAdminCliRegistrar,
+  bindAdminService,
+  type OpenClawCliRegistrar,
+  type OpenClawCliRegistrationOptions,
+} from "../admin/cli.js";
 import {
   createAdminPanel,
   createAdminService,
@@ -11,17 +16,44 @@ import {
   OPENCLAW_HOST_API,
   type ExposureMode,
   type GatewayExposure,
+  type GatewayRequestVerifier,
   type HostApiCompatibility,
-  type OpenClawHttpRouteRegistration,
+  type OpenClawPluginHttpRouteParams,
 } from "../http/routes.js";
+
+export type OpenClawChannelConfig = Readonly<{
+  listAccountIds: (config: unknown) => string[];
+  resolveAccount: (config: unknown, accountId?: string | null) => Readonly<{ accountId: string }>;
+}>;
+
+export type OpenClawOperatorScope =
+  | "operator.admin"
+  | "operator.read"
+  | "operator.write"
+  | "operator.approvals"
+  | "operator.pairing"
+  | "operator.talk.secrets";
 
 export type OpenClawChannelPlugin = Readonly<{
   id: "agent-life-gateway";
   meta: Readonly<{
     id: "agent-life-gateway";
     label: "Agent-life Gateway";
+    selectionLabel: "Agent-life Gateway";
+    docsPath: "/gateway/agent-life";
     blurb: string;
   }>;
+  capabilities: Readonly<{
+    chatTypes: Array<"direct" | "thread">;
+    media: boolean;
+  }>;
+  config: OpenClawChannelConfig;
+  gatewayMethods: string[];
+  gatewayMethodDescriptors: Array<Readonly<{
+    name: string;
+    scope?: OpenClawOperatorScope;
+    description?: string;
+  }>>;
 }>;
 
 export const AGENT_LIFE_CHANNEL: OpenClawChannelPlugin = Object.freeze({
@@ -29,24 +61,57 @@ export const AGENT_LIFE_CHANNEL: OpenClawChannelPlugin = Object.freeze({
   meta: Object.freeze({
     id: "agent-life-gateway" as const,
     label: "Agent-life Gateway" as const,
+    selectionLabel: "Agent-life Gateway" as const,
+    docsPath: "/gateway/agent-life" as const,
     blurb: "Gateway Protocol v2 over the OpenClaw Gateway host",
   }),
+  capabilities: {
+    chatTypes: ["direct" as const],
+    media: true,
+  },
+  config: {
+    listAccountIds: (_config: unknown): string[] => [],
+    resolveAccount: (_config: unknown, accountId?: string | null): Readonly<{ accountId: string }> => ({
+      accountId: accountId ?? "default",
+    }),
+  },
+  // Management is deliberately exposed through the host's local panel and
+  // CLI, so no remote gateway method is advertised or registered here.
+  gatewayMethods: [],
+  gatewayMethodDescriptors: [],
 });
 
 export type OpenClawChannelRegistration = Readonly<{
   plugin: OpenClawChannelPlugin;
 }>;
 
-export type OpenClawCliRegistrar = (
-  context: OpenClawCliContext | readonly string[],
-) => Promise<unknown>;
+export type OpenClawGatewayMethodHandlerOptions = Readonly<{
+  req: unknown;
+  params: Record<string, unknown>;
+  client: unknown | null;
+  isWebchatConnect: (params: unknown) => boolean;
+  respond: (...args: unknown[]) => unknown;
+  context: unknown;
+}>;
+
+export type OpenClawGatewayMethodHandler = (
+  options: OpenClawGatewayMethodHandlerOptions,
+) => Promise<void> | void;
 
 export type OpenClawPluginApi = Readonly<{
-  registerChannel: (registration: OpenClawChannelRegistration) => void;
-  registerHttpRoute: (route: OpenClawHttpRouteRegistration) => void;
+  registerChannel: (registration: OpenClawChannelRegistration | OpenClawChannelPlugin) => void;
+  registerHttpRoute: (route: OpenClawPluginHttpRouteParams) => void;
   registerAdminPanel?: (panel: AdminPanel) => void;
-  registerGatewayMethod?: (name: string, handler: (params: unknown) => Promise<unknown>) => void;
-  registerCli?: (registrar: OpenClawCliRegistrar, options?: Readonly<Record<string, unknown>>) => void;
+  /** Typed for host compatibility; intentionally not used for management. */
+  registerGatewayMethod?: (
+    name: string,
+    handler: OpenClawGatewayMethodHandler,
+    options?: Readonly<{ scope?: OpenClawOperatorScope }>,
+  ) => void;
+  registerCli?: (registrar: OpenClawCliRegistrar, options?: OpenClawCliRegistrationOptions) => void;
+  /** Explicit security-layer seam; absent means every raw route is 401. */
+  verifyRequest?: GatewayRequestVerifier;
+  maxBodyBytes?: number;
   version?: string;
   hostVersion?: string;
   dataDir?: string;
@@ -56,6 +121,7 @@ export type OpenClawPluginApi = Readonly<{
     version?: string;
     dataDir?: string;
     gatewayCore?: GatewayCore;
+    verifyRequest?: GatewayRequestVerifier;
   }>;
   pluginConfig?: Readonly<Record<string, unknown>>;
 }>;
@@ -73,6 +139,8 @@ export type ComposeGatewayServicesOptions = Readonly<{
   hostVersion?: string;
   hostApi?: HostApiCompatibility;
   exposureMode?: ExposureMode;
+  verifyRequest?: GatewayRequestVerifier;
+  maxBodyBytes?: number;
 }>;
 
 const exposureMode = (value: unknown): ExposureMode => {
@@ -82,15 +150,20 @@ const exposureMode = (value: unknown): ExposureMode => {
 
 export const composeGatewayServices = (options: ComposeGatewayServicesOptions = {}): GatewayServices => {
   const hostApi = options.hostApi ?? OPENCLAW_HOST_API;
-  const hostVersion = options.hostVersion ?? hostApi.maxVersion;
   const core = options.core ?? createGatewayCore({ storageRoot: options.storageRoot });
-  const admin = createAdminService({ core, hostVersion, hostApi });
-  const exposure = createGatewayExposure(options.exposureMode ?? "host-route", { core, hostVersion, hostApi });
+  const admin = createAdminService({ core, hostVersion: options.hostVersion, hostApi });
+  const exposure = createGatewayExposure(options.exposureMode ?? "host-route", {
+    core,
+    hostVersion: options.hostVersion,
+    hostApi,
+    verifyRequest: options.verifyRequest,
+    maxBodyBytes: options.maxBodyBytes,
+  });
   return Object.freeze({ core, admin, adminPanel: createAdminPanel(admin), exposure });
 };
 
-const apiHostVersion = (api: OpenClawPluginApi): string =>
-  api.hostVersion ?? api.runtime?.version ?? api.version ?? OPENCLAW_HOST_API.maxVersion;
+const apiHostVersion = (api: OpenClawPluginApi): string | undefined =>
+  api.hostVersion ?? api.runtime?.version ?? api.version;
 
 const apiStorageRoot = (api: OpenClawPluginApi): string | undefined =>
   api.dataDir
@@ -100,27 +173,24 @@ const apiStorageRoot = (api: OpenClawPluginApi): string | undefined =>
 const apiCore = (api: OpenClawPluginApi): GatewayCore | undefined =>
   api.gatewayCore ?? api.runtime?.gatewayCore;
 
+const apiVerifier = (api: OpenClawPluginApi): GatewayRequestVerifier | undefined =>
+  api.verifyRequest ?? api.runtime?.verifyRequest;
+
 const apiExposureMode = (api: OpenClawPluginApi): ExposureMode =>
   exposureMode(api.pluginConfig?.exposureMode);
 
 const registerManagementSurface = (api: OpenClawPluginApi, services: GatewayServices): void => {
   bindAdminService(services.admin);
-  if (api.registerAdminPanel !== undefined) {
-    api.registerAdminPanel(services.adminPanel);
-  } else if (api.registerGatewayMethod !== undefined) {
-    api.registerGatewayMethod("agent-life.admin", async (params) => {
-      if (Array.isArray(params)) {
-        const registrar = createAdminCliRegistrar(services.admin);
-        return registrar(params.map((value) => String(value)));
-      }
-      return services.admin.status();
-    });
-  }
+  if (api.registerAdminPanel !== undefined) api.registerAdminPanel(services.adminPanel);
   if (api.registerCli !== undefined) {
     api.registerCli(createAdminCliRegistrar(services.admin), {
-      command: "agent-life",
-      localOnly: true,
-      remotePort: null,
+      parentPath: [],
+      commands: ["agent-life"],
+      descriptors: [{
+        name: "agent-life",
+        description: "Manage Agent-life Gateway accounts",
+        hasSubcommands: true,
+      }],
     });
   }
 };
@@ -131,11 +201,12 @@ export const registerAgentLifeGateway = (api: OpenClawPluginApi): void => {
     storageRoot: apiStorageRoot(api),
     hostVersion: apiHostVersion(api),
     exposureMode: apiExposureMode(api),
+    verifyRequest: apiVerifier(api),
+    maxBodyBytes: api.maxBodyBytes,
   });
-  const registration = Object.freeze({
+  api.registerChannel(Object.freeze({
     plugin: AGENT_LIFE_CHANNEL,
-  });
-  api.registerChannel(registration);
+  }));
   for (const route of services.exposure.routes) {
     api.registerHttpRoute({
       path: route.path,
