@@ -29,6 +29,11 @@ type CliCapture = Readonly<{
   options: OpenClawCliRegistrationOptions | undefined;
 }>;
 
+type ApiVersionOptions = Readonly<{
+  hostVersion?: string;
+  pluginVersion?: string;
+}>;
+
 const fakeCore = (seen: { request?: VerifiedGatewayRequest }): GatewayCore => Object.freeze({
   openGatewayAccount: async () => {
     throw new Error("not used by registration");
@@ -106,6 +111,7 @@ const fakeOpenClawApi = (
   core: GatewayCore,
   verifyRequest?: (input: GatewayRequestVerifierInput) => VerifiedGatewayRequest | undefined,
   maxBodyBytes?: number,
+  versionOptions: ApiVersionOptions = { hostVersion: "2026.7.1" },
 ) => {
   const channels: unknown[] = [];
   const httpRoutes: RegisteredRoute[] = [];
@@ -113,7 +119,8 @@ const fakeOpenClawApi = (
   const cliCaptures: CliCapture[] = [];
   const gatewayMethods: string[] = [];
   return {
-    version: "2026.7.1",
+    version: versionOptions.pluginVersion ?? "plugin-1.0.0",
+    ...(versionOptions.hostVersion === undefined ? {} : { hostVersion: versionOptions.hostVersion }),
     gatewayCore: core,
     verifyRequest,
     maxBodyBytes,
@@ -250,8 +257,49 @@ describe("OpenClaw Agent-life registration", () => {
   it("rejects an unknown host version before exposing a usable route", async () => {
     const { registerAgentLifeGateway } = await import("../src/host/channel-adapter.js");
     const seen: { request?: VerifiedGatewayRequest } = {};
-    const api = fakeOpenClawApi(fakeCore(seen));
-    delete (api as { version?: string }).version;
+    const api = fakeOpenClawApi(fakeCore(seen), undefined, undefined, {
+      hostVersion: undefined,
+      pluginVersion: "2026.7.1",
+    });
+
+    registerAgentLifeGateway(api);
+    const negotiate = api.httpRoutes.find((route) => route.path === "/agent-life/v2/negotiate");
+    if (negotiate?.handler === undefined) throw new Error("registered negotiate handler missing");
+
+    const { response, state } = rawResponse();
+    await expect(negotiate.handler(rawRequest("/agent-life/v2/negotiate"), response)).resolves.toBe(true);
+    expect(state.statusCode).toBe(503);
+    expect(JSON.parse(state.body)).toMatchObject({ error: { code: "HOST_INCOMPATIBLE" } });
+    expect(seen.request).toBeUndefined();
+    expect((api.adminPanels[0] as { readOnly: boolean }).readOnly).toBe(true);
+  });
+
+  it("accepts an explicit trusted hostVersion even when plugin metadata has another version", async () => {
+    const { registerAgentLifeGateway } = await import("../src/host/channel-adapter.js");
+    const seen: { request?: VerifiedGatewayRequest } = {};
+    const api = fakeOpenClawApi(fakeCore(seen), (input) => verifiedRequest(input), undefined, {
+      hostVersion: "2026.7.1",
+      pluginVersion: "plugin-1.0.0",
+    });
+
+    registerAgentLifeGateway(api);
+    const negotiate = api.httpRoutes.find((route) => route.path === "/agent-life/v2/negotiate");
+    if (negotiate?.handler === undefined) throw new Error("registered negotiate handler missing");
+
+    const { response, state } = rawResponse();
+    await expect(negotiate.handler(rawRequest("/agent-life/v2/negotiate"), response)).resolves.toBe(true);
+    expect(state.statusCode).toBe(200);
+    expect(seen.request?.target).toBe("/agent-life/v2/negotiate");
+    expect((api.adminPanels[0] as { readOnly: boolean }).readOnly).toBe(false);
+  });
+
+  it("rejects an invalid explicit hostVersion even when plugin metadata looks compatible", async () => {
+    const { registerAgentLifeGateway } = await import("../src/host/channel-adapter.js");
+    const seen: { request?: VerifiedGatewayRequest } = {};
+    const api = fakeOpenClawApi(fakeCore(seen), undefined, undefined, {
+      hostVersion: "not-a-version",
+      pluginVersion: "2026.7.1",
+    });
 
     registerAgentLifeGateway(api);
     const negotiate = api.httpRoutes.find((route) => route.path === "/agent-life/v2/negotiate");

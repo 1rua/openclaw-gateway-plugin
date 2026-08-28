@@ -187,6 +187,30 @@ describe("OpenClaw Agent-life exposure modes", () => {
       });
     }
 
+    const validCustomHostApi = {
+      minVersion: "2026.7.1",
+      maxVersion: "2026.7.1",
+      verifiedCommit: "a".repeat(40),
+    };
+    const validCustomExposure = createGatewayExposure("host-route", {
+      core: fakeCore({ requests: [] }),
+      hostVersion: "2026.7.1",
+      hostApi: validCustomHostApi,
+      verifyRequest: (input) => verifiedRequest(input),
+    });
+    const validCustomRoute = validCustomExposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+    if (validCustomRoute === undefined) throw new Error("negotiate route missing");
+    const validCustomResponse = rawResponse();
+    await expect(validCustomRoute.handler(
+      rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
+      validCustomResponse.response,
+    )).resolves.toBe(true);
+    expect(validCustomResponse.state.statusCode).toBe(200);
+    await expect(createAdminService({ hostVersion: "2026.7.1", hostApi: validCustomHostApi }).status()).resolves.toMatchObject({
+      ok: true,
+      readOnly: false,
+    });
+
     const invalidRange = {
       minVersion: "2026.8.0",
       maxVersion: "2026.7.1",
@@ -226,6 +250,29 @@ describe("OpenClaw Agent-life exposure modes", () => {
     )).resolves.toBe(true);
     expect(invalidFormatResponse.state.statusCode).toBe(503);
     await expect(createAdminService({ hostVersion: "2026.7.1", hostApi: invalidFormat }).status()).resolves.toMatchObject({
+      ok: true,
+      readOnly: true,
+    });
+
+    const invalidCommit = {
+      minVersion: "2026.7.1",
+      maxVersion: "2026.7.1",
+      verifiedCommit: "not-a-commit",
+    };
+    const invalidCommitExposure = createGatewayExposure("host-route", {
+      core: fakeCore({ requests: [] }),
+      hostVersion: "2026.7.1",
+      hostApi: invalidCommit,
+    });
+    const invalidCommitRoute = invalidCommitExposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+    if (invalidCommitRoute === undefined) throw new Error("negotiate route missing");
+    const invalidCommitResponse = rawResponse();
+    await expect(invalidCommitRoute.handler(
+      rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
+      invalidCommitResponse.response,
+    )).resolves.toBe(true);
+    expect(invalidCommitResponse.state.statusCode).toBe(503);
+    await expect(createAdminService({ hostVersion: "2026.7.1", hostApi: invalidCommit }).status()).resolves.toMatchObject({
       ok: true,
       readOnly: true,
     });

@@ -62,7 +62,7 @@ const fakeCore = (writes: { count: number }): GatewayCore => ({
   },
 });
 
-const fakeOpenClawApi = (core: GatewayCore, version = "2026.7.1") => {
+const fakeOpenClawApi = (core: GatewayCore, hostVersion = "2026.7.1") => {
   const channels: unknown[] = [];
   const httpRoutes: unknown[] = [];
   const adminPanels: unknown[] = [];
@@ -70,7 +70,8 @@ const fakeOpenClawApi = (core: GatewayCore, version = "2026.7.1") => {
   const cliOptions: Array<OpenClawCliRegistrationOptions | undefined> = [];
   const gatewayMethods: string[] = [];
   return {
-    version,
+    version: "plugin-1.0.0",
+    hostVersion,
     gatewayCore: core,
     channels,
     httpRoutes,

@@ -160,7 +160,7 @@ const compareVersions = (left: unknown, right: unknown): number => {
 };
 
 const validHostApiRange = (hostApi: HostApiCompatibility): boolean => {
-  if (typeof hostApi.verifiedCommit !== "string" || hostApi.verifiedCommit.length === 0) return false;
+  if (!/^[0-9a-f]{40}$/iu.test(hostApi.verifiedCommit)) return false;
   const minimum = parseVersion(hostApi.minVersion);
   const maximum = parseVersion(hostApi.maxVersion);
   return minimum !== undefined

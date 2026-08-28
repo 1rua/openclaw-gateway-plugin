@@ -118,7 +118,6 @@ export type OpenClawPluginApi = Readonly<{
   resolvePath?: (input: string) => string;
   gatewayCore?: GatewayCore;
   runtime?: Readonly<{
-    version?: string;
     dataDir?: string;
     gatewayCore?: GatewayCore;
     verifyRequest?: GatewayRequestVerifier;
@@ -162,8 +161,9 @@ export const composeGatewayServices = (options: ComposeGatewayServicesOptions = 
   return Object.freeze({ core, admin, adminPanel: createAdminPanel(admin), exposure });
 };
 
-const apiHostVersion = (api: OpenClawPluginApi): string | undefined =>
-  api.hostVersion ?? api.runtime?.version ?? api.version;
+// OpenClaw's `api.version` is plugin metadata, not the host API version.
+// Only an explicit trusted host-version adapter may enable this integration.
+const apiHostVersion = (api: OpenClawPluginApi): string | undefined => api.hostVersion;
 
 const apiStorageRoot = (api: OpenClawPluginApi): string | undefined =>
   api.dataDir
