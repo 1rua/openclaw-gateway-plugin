@@ -9,6 +9,11 @@ import { ConversationPort } from "./conversation-port.js";
 import { DeviceRequestStore } from "./device-request-store.js";
 import { EventStore } from "./event-store.js";
 import { SessionService } from "./session-service.js";
+import {
+  runSharedVectors,
+  type ConformanceResult,
+  type ConformanceVectorOperation,
+} from "./shared-vectors.js";
 
 export type GatewayAccount = Readonly<{
   accountId: string;
@@ -65,7 +70,10 @@ export type GatewayResponse = Readonly<{
 export type GatewayCore = Readonly<{
   openGatewayAccount: (accountId: string) => Promise<GatewayAccount>;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
+  runSharedVectors: (contractRoot?: string) => ConformanceResult[];
 }>;
+
+export type { ConformanceResult, ConformanceVectorOperation };
 
 const success = (
   request: VerifiedGatewayRequest,
@@ -369,6 +377,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         return failure(request, gatewayErrorCode(error));
       }
     },
+    runSharedVectors: (contractRoot?: string): ConformanceResult[] =>
+      runSharedVectors(contractRoot),
   });
 };
 

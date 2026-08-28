@@ -60,6 +60,9 @@ const fakeCore = (writes: { count: number }): GatewayCore => ({
   handle: async () => {
     throw new Error("not used by admin service");
   },
+  runSharedVectors: () => {
+    throw new Error("not used by admin service");
+  },
 });
 
 const fakeOpenClawApi = (core: GatewayCore, hostVersion = "2026.7.1") => {

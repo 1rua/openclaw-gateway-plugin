@@ -47,6 +47,9 @@ const fakeCore = (seen: { request?: VerifiedGatewayRequest }): GatewayCore => Ob
       data: Object.freeze({ accepted: true, target: request.target }),
     });
   },
+  runSharedVectors: () => {
+    throw new Error("not used by registration");
+  },
 });
 
 const verifiedRequest = (input: GatewayRequestVerifierInput): VerifiedGatewayRequest => Object.freeze({

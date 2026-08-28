@@ -27,6 +27,9 @@ const fakeCore = (seen: { requests: VerifiedGatewayRequest[] }): GatewayCore => 
       data: Object.freeze({ accepted: true, method: request.method, target: request.target }),
     });
   },
+  runSharedVectors: () => {
+    throw new Error("not used by exposure test");
+  },
 });
 
 const verifiedRequest = (input: GatewayRequestVerifierInput): VerifiedGatewayRequest => Object.freeze({
@@ -126,6 +129,9 @@ const expectHostApiRejected = async (hostApi: HostApiCompatibility): Promise<voi
         throw new Error("incompatible host must remain read-only");
       },
       handle: async () => {
+        throw new Error("incompatible host must not call Core");
+      },
+      runSharedVectors: () => {
         throw new Error("incompatible host must not call Core");
       },
     },
