@@ -293,4 +293,12 @@ describe("OpenClaw Agent-life exposure modes", () => {
       maxVersion: "2026.7.1",
     } as unknown as HostApiCompatibility);
   });
+
+  it("rejects a non-empty malformed verifiedCommit independently before verifier, Core, or admin writes", async () => {
+    await expectHostApiRejected({
+      minVersion: "2026.7.1",
+      maxVersion: "2026.7.1",
+      verifiedCommit: "not-a-commit",
+    });
+  });
 });
