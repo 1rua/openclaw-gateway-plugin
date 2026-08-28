@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
 
 import type { GatewayCore, VerifiedGatewayRequest } from "../src/core/gateway-core.js";
+import type { HostApiCompatibility } from "../src/http/routes.js";
 
 type GatewayRequestVerifierInput = Readonly<{
   method: "GET" | "POST" | "PUT" | "DELETE";
@@ -89,6 +90,55 @@ const routeCases = [
   { path: "/agent-life/v2/device-requests/request-1", method: "GET" as const, body: "" },
 ] as const;
 
+const expectHostApiRejected = async (hostApi: HostApiCompatibility): Promise<void> => {
+  const { createGatewayExposure } = await import("../src/http/routes.js");
+  const { createAdminService } = await import("../src/admin/service.js");
+  const seen = { requests: [] as VerifiedGatewayRequest[] };
+  let verifierCalls = 0;
+  const exposure = createGatewayExposure("host-route", {
+    core: fakeCore(seen),
+    hostVersion: "2026.7.1",
+    hostApi,
+    verifyRequest: (input) => {
+      verifierCalls += 1;
+      return verifiedRequest(input);
+    },
+  });
+  const route = exposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+  if (route === undefined) throw new Error("negotiate route missing");
+  const routeResponse = rawResponse();
+  await expect(route.handler(
+    rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
+    routeResponse.response,
+  )).resolves.toBe(true);
+  expect(routeResponse.state.statusCode).toBe(503);
+  expect(JSON.parse(routeResponse.state.body)).toMatchObject({ error: { code: "HOST_INCOMPATIBLE" } });
+  expect(verifierCalls).toBe(0);
+  expect(seen.requests).toHaveLength(0);
+
+  const adminWrites = { count: 0 };
+  const admin = createAdminService({
+    hostVersion: "2026.7.1",
+    hostApi,
+    core: {
+      openGatewayAccount: async () => {
+        adminWrites.count += 1;
+        throw new Error("incompatible host must remain read-only");
+      },
+      handle: async () => {
+        throw new Error("incompatible host must not call Core");
+      },
+    },
+  });
+  expect(admin.readOnly).toBe(true);
+  await expect(admin.createAccount({ accountId: "account-a", localConfirmation: true })).resolves.toMatchObject({
+    ok: false,
+    readOnly: true,
+    error: { code: "HOST_INCOMPATIBLE" },
+  });
+  expect(adminWrites.count).toBe(0);
+};
+
 describe("OpenClaw Agent-life exposure modes", () => {
   it("uses the same raw route cases and verified Core behavior for all three modes", async () => {
     const legacyAdapter = await import("../adapter.js");
@@ -162,7 +212,7 @@ describe("OpenClaw Agent-life exposure modes", () => {
     expect(results[0]).toMatchObject({ statusCode: 503, body: { error: { code: "HOST_INCOMPATIBLE" } } });
   });
 
-  it("fails closed for missing or malformed host versions and invalid version ranges in routes and admin", async () => {
+  it("fails closed for missing or malformed host versions and accepts a valid custom hostApi", async () => {
     const { createGatewayExposure } = await import("../src/http/routes.js");
     const { createAdminService } = await import("../src/admin/service.js");
     const hostVersions: Array<string | undefined> = [undefined, "not-a-version"];
@@ -211,70 +261,36 @@ describe("OpenClaw Agent-life exposure modes", () => {
       readOnly: false,
     });
 
-    const invalidRange = {
+  });
+
+  it("rejects a reversed hostApi range independently with a valid verifiedCommit", async () => {
+    await expectHostApiRejected({
       minVersion: "2026.8.0",
       maxVersion: "2026.7.1",
-      verifiedCommit: "pinned-test-commit",
-    };
-    const exposure = createGatewayExposure("host-route", {
-      core: fakeCore({ requests: [] }),
-      hostVersion: "2026.7.1",
-      hostApi: invalidRange,
+      verifiedCommit: "b".repeat(40),
     });
-    const route = exposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
-    if (route === undefined) throw new Error("negotiate route missing");
-    const { response, state } = rawResponse();
-    await expect(route.handler(rawRequest("/agent-life/v2/negotiate", "POST", "{}"), response)).resolves.toBe(true);
-    expect(state.statusCode).toBe(503);
-    await expect(createAdminService({ hostVersion: "2026.7.1", hostApi: invalidRange }).status()).resolves.toMatchObject({
-      ok: true,
-      readOnly: true,
-    });
+  });
 
-    const invalidFormat = {
+  it("rejects an invalid hostApi minVersion independently with a valid verifiedCommit", async () => {
+    await expectHostApiRejected({
       minVersion: "not-a-version",
       maxVersion: "2026.7.1",
-      verifiedCommit: "pinned-test-commit",
-    };
-    const invalidFormatExposure = createGatewayExposure("host-route", {
-      core: fakeCore({ requests: [] }),
-      hostVersion: "2026.7.1",
-      hostApi: invalidFormat,
+      verifiedCommit: "c".repeat(40),
     });
-    const invalidFormatRoute = invalidFormatExposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
-    if (invalidFormatRoute === undefined) throw new Error("negotiate route missing");
-    const invalidFormatResponse = rawResponse();
-    await expect(invalidFormatRoute.handler(
-      rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
-      invalidFormatResponse.response,
-    )).resolves.toBe(true);
-    expect(invalidFormatResponse.state.statusCode).toBe(503);
-    await expect(createAdminService({ hostVersion: "2026.7.1", hostApi: invalidFormat }).status()).resolves.toMatchObject({
-      ok: true,
-      readOnly: true,
-    });
+  });
 
-    const invalidCommit = {
+  it("rejects an invalid hostApi maxVersion independently with a valid verifiedCommit", async () => {
+    await expectHostApiRejected({
+      minVersion: "2026.7.1",
+      maxVersion: "not-a-version",
+      verifiedCommit: "d".repeat(40),
+    });
+  });
+
+  it("rejects a hostApi with valid min/max but missing verifiedCommit before verifier or Core", async () => {
+    await expectHostApiRejected({
       minVersion: "2026.7.1",
       maxVersion: "2026.7.1",
-      verifiedCommit: "not-a-commit",
-    };
-    const invalidCommitExposure = createGatewayExposure("host-route", {
-      core: fakeCore({ requests: [] }),
-      hostVersion: "2026.7.1",
-      hostApi: invalidCommit,
-    });
-    const invalidCommitRoute = invalidCommitExposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
-    if (invalidCommitRoute === undefined) throw new Error("negotiate route missing");
-    const invalidCommitResponse = rawResponse();
-    await expect(invalidCommitRoute.handler(
-      rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
-      invalidCommitResponse.response,
-    )).resolves.toBe(true);
-    expect(invalidCommitResponse.state.statusCode).toBe(503);
-    await expect(createAdminService({ hostVersion: "2026.7.1", hostApi: invalidCommit }).status()).resolves.toMatchObject({
-      ok: true,
-      readOnly: true,
-    });
+    } as unknown as HostApiCompatibility);
   });
 });
