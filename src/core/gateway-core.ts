@@ -111,9 +111,7 @@ const bodyRecord = (value: unknown): Readonly<Record<string, unknown>> => {
   return value as Readonly<Record<string, unknown>>;
 };
 
-const gatewayErrorCode = (error: unknown): string => {
-  const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
-  const known = new Set([
+const protocolErrorCodes = new Set([
     "SCHEMA_INVALID",
     "IDENTITY_OVERRIDE_REJECTED",
     "PAIRING_GENERATION_STALE",
@@ -124,8 +122,16 @@ const gatewayErrorCode = (error: unknown): string => {
     "ATTACHMENT_EXPIRED",
     "CURSOR_CONFLICT",
     "CURSOR_EXPIRED",
-  ]);
-  return known.has(code) ? code : "INTERNAL_ERROR";
+]);
+
+const gatewayErrorCode = (error: unknown): string => {
+  const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
+  return protocolErrorCodes.has(code) ? code : "INTERNAL_ERROR";
+};
+
+const persistableProtocolError = (error: unknown): string | undefined => {
+  if (!(error instanceof Error) || !protocolErrorCodes.has(error.message)) return undefined;
+  return error.message;
 };
 
 const assertNoIdentityOverride = (value: unknown): void => {
@@ -171,7 +177,9 @@ const runIdempotent = (
     try {
       response = work();
     } catch (error) {
-      response = failure(request, gatewayErrorCode(error));
+      const code = persistableProtocolError(error);
+      if (code === undefined) throw error;
+      response = failure(request, code);
     }
     account.store.database
       .prepare(`

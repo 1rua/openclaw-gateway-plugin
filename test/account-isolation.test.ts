@@ -365,4 +365,38 @@ describe("OpenClaw Gateway account isolation", () => {
     expect(count).toBe(0);
     reopened.close();
   });
+
+  it("rolls back business writes and does not ledger an unexpected work failure", async () => {
+    const storageRoot = tempRoot();
+    const core = createGatewayCore({ storageRoot });
+    const account = await core.openGatewayAccount("acct_alice");
+    account.store.database.exec(`
+      CREATE TRIGGER fail_conversation_audit
+      BEFORE INSERT ON audit_events
+      BEGIN
+        SELECT RAISE(ABORT, 'audit forced failure');
+      END;
+    `);
+    account.close();
+
+    await expect(core.handle({
+      context: context({ requestId: "req_unexpected_work", correlationId: "cor_unexpected_work" }),
+      method: "POST",
+      target: "/agent-life/v2/conversations",
+      idempotencyKey: "req_unexpected_work",
+      body: { clientConversationId: "conv_client_unexpected_work", title: "Should roll back" },
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    })).resolves.toMatchObject({ error: { code: "INTERNAL_ERROR" } });
+
+    const reopened = await core.openGatewayAccount("acct_alice");
+    const conversationCount = (reopened.store.database
+      .prepare("SELECT COUNT(*) AS count FROM conversations WHERE client_conversation_id = ?")
+      .get("conv_client_unexpected_work") as { count: number }).count;
+    const ledgerCount = (reopened.store.database
+      .prepare("SELECT COUNT(*) AS count FROM idempotency_ledger WHERE device_id = ? AND request_id = ?")
+      .get("dev_1", "req_unexpected_work") as { count: number }).count;
+    expect(conversationCount).toBe(0);
+    expect(ledgerCount).toBe(0);
+    reopened.close();
+  });
 });

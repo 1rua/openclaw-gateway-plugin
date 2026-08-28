@@ -2,9 +2,14 @@ import { DatabaseSync } from "node:sqlite";
 
 import { type AccountPaths, ensureAccountDirectories } from "./account-paths.js";
 
+export type TransactionHooks = Readonly<{
+  onCommit?: () => void;
+  onRollback?: () => void;
+}>;
+
 export type GatewayAccountStore = Readonly<{
   database: DatabaseSync;
-  transaction: <T>(work: () => T) => T;
+  transaction: <T>(work: () => T, hooks?: TransactionHooks) => T;
   close: () => void;
 }>;
 
@@ -141,19 +146,48 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   ensureAccountDirectories(paths);
   const database = new DatabaseSync(paths.database);
   let transactionDepth = 0;
+  let activeHooks: {
+    onCommit: Array<() => void>;
+    onRollback: Array<() => void>;
+  } | undefined;
+
+  const addHooks = (hooks?: TransactionHooks): void => {
+    if (hooks?.onCommit !== undefined) activeHooks?.onCommit.push(hooks.onCommit);
+    if (hooks?.onRollback !== undefined) activeHooks?.onRollback.push(hooks.onRollback);
+  };
+
+  const runBestEffort = (hooks: readonly (() => void)[]): void => {
+    for (const hook of hooks) {
+      try {
+        hook();
+      } catch {
+        // The database decision is already durable or rolled back. A hook failure
+        // remains retryable through the attachment staging reconciliation scan.
+      }
+    }
+  };
+
   migrate(database);
   ensureMetadata(database, "master_key_ref", `host-secret:${paths.root.split("/").at(-1) ?? "account"}`);
   ensureMetadata(database, "gateway_identity_ref", "spki_initial");
   return Object.freeze({
     database,
-    transaction: <T>(work: () => T): T => {
-      if (transactionDepth > 0) return work();
+    transaction: <T>(work: () => T, hooks?: TransactionHooks): T => {
+      if (transactionDepth > 0) {
+        addHooks(hooks);
+        return work();
+      }
       database.exec("BEGIN IMMEDIATE");
       transactionDepth += 1;
+      activeHooks = { onCommit: [], onRollback: [] };
+      addHooks(hooks);
       try {
         const result = work();
         database.exec("COMMIT");
         transactionDepth -= 1;
+        const committedHooks = activeHooks.onCommit;
+        activeHooks = undefined;
+        runBestEffort(committedHooks);
         return result;
       } catch (error) {
         try {
@@ -163,6 +197,9 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
           // an error so the failure itself cannot roll back the protection.
         }
         transactionDepth -= 1;
+        const rollbackHooks = [...(activeHooks?.onRollback ?? [])].reverse();
+        activeHooks = undefined;
+        runBestEffort(rollbackHooks);
         throw error;
       }
     },

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,5 +54,184 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
 
     alice.close();
     bob.close();
+  });
+
+  it("keeps a rolled-back handle upload discoverable and TTL-cleanable", async () => {
+    const storageRoot = tempRoot();
+    const core = createGatewayCore({ storageRoot });
+    const account = await core.openGatewayAccount("acct_alice");
+    const body = new TextEncoder().encode("upload must remain auditable");
+    const attachment = account.attachments.create({
+      clientAttachmentId: "att_upload_rollback",
+      filename: "upload.txt",
+      mediaType: "text/plain",
+      sizeBytes: body.byteLength,
+      sha256: sha256(body),
+      correlationId: "cor_upload_rollback",
+      expiresAt: "2026-08-27T00:10:00.000Z",
+    });
+    account.store.database.exec(`
+      CREATE TRIGGER fail_upload_ledger
+      BEFORE INSERT ON idempotency_ledger
+      BEGIN
+        SELECT RAISE(ABORT, 'upload ledger forced failure');
+      END;
+    `);
+    account.close();
+
+    await expect(core.handle({
+      context: {
+        accountId: "acct_alice",
+        deviceId: "dev_1",
+        sessionId: "sess_upload_rollback",
+        requestId: "req_upload_rollback",
+        correlationId: "cor_upload_rollback_handle",
+        pairingGeneration: 1,
+        grantRevision: 1,
+      },
+      method: "PUT",
+      target: `/agent-life/v2/attachments/${attachment.attachmentId}/content`,
+      idempotencyKey: "req_upload_rollback",
+      body,
+      now: new Date("2026-08-27T00:00:01.000Z"),
+    })).resolves.toMatchObject({ error: { code: "INTERNAL_ERROR" } });
+
+    const reopened = await core.openGatewayAccount("acct_alice");
+    const row = reopened.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    const expectedPath = join(reopened.paths.attachments, `${attachment.attachmentId}.stage`);
+    expect(row.state).toBe("uploading");
+    expect(row.content_path).toBe(expectedPath);
+    expect(existsSync(expectedPath)).toBe(true);
+    expect(reopened.attachments.get(attachment.attachmentId)).toMatchObject({
+      state: "uploading",
+      hasStagedBytes: true,
+    });
+
+    expect(reopened.attachments.expireDue(new Date("2026-08-27T00:10:01.000Z"))).toBe(1);
+    const cleaned = reopened.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    expect(cleaned.state).toBe("expired");
+    expect(cleaned.content_path).toBeNull();
+    expect(existsSync(expectedPath)).toBe(false);
+    reopened.close();
+  });
+
+  it("keeps the unique staged file when digest-failure commit rolls back and lets TTL clean it", async () => {
+    const storageRoot = tempRoot();
+    const core = createGatewayCore({ storageRoot });
+    const account = await core.openGatewayAccount("acct_alice");
+    const body = new TextEncoder().encode("digest failure body");
+    const attachment = account.attachments.create({
+      clientAttachmentId: "att_digest_rollback",
+      filename: "digest.txt",
+      mediaType: "text/plain",
+      sizeBytes: body.byteLength,
+      sha256: sha256(new TextEncoder().encode("different digest")),
+      correlationId: "cor_digest_rollback",
+      expiresAt: "2026-08-27T00:20:00.000Z",
+    });
+    account.attachments.uploadContent(attachment.attachmentId, body);
+    account.store.database.exec(`
+      CREATE TRIGGER fail_digest_ledger
+      BEFORE INSERT ON idempotency_ledger
+      BEGIN
+        SELECT RAISE(ABORT, 'digest ledger forced failure');
+      END;
+    `);
+    account.close();
+
+    await expect(core.handle({
+      context: {
+        accountId: "acct_alice",
+        deviceId: "dev_1",
+        sessionId: "sess_digest_rollback",
+        requestId: "req_digest_rollback",
+        correlationId: "cor_digest_rollback_handle",
+        pairingGeneration: 1,
+        grantRevision: 1,
+      },
+      method: "POST",
+      target: `/agent-life/v2/attachments/${attachment.attachmentId}/commit`,
+      idempotencyKey: "req_digest_rollback",
+      now: new Date("2026-08-27T00:00:01.000Z"),
+    })).resolves.toMatchObject({ error: { code: "INTERNAL_ERROR" } });
+
+    const reopened = await core.openGatewayAccount("acct_alice");
+    const row = reopened.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    const expectedPath = join(reopened.paths.attachments, `${attachment.attachmentId}.stage`);
+    expect(row.state).toBe("uploading");
+    expect(row.content_path).toBe(expectedPath);
+    expect(existsSync(expectedPath)).toBe(true);
+    expect(reopened.attachments.get(attachment.attachmentId)).toMatchObject({
+      state: "uploading",
+      hasStagedBytes: true,
+    });
+
+    expect(reopened.attachments.expireDue(new Date("2026-08-27T00:20:01.000Z"))).toBe(1);
+    const cleaned = reopened.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    expect(cleaned.state).toBe("expired");
+    expect(cleaned.content_path).toBeNull();
+    expect(existsSync(expectedPath)).toBe(false);
+    reopened.close();
+  });
+
+  it("keeps a digest-failed attachment referenceable until explicit cleanup", async () => {
+    const storageRoot = tempRoot();
+    const core = createGatewayCore({ storageRoot });
+    const account = await core.openGatewayAccount("acct_alice");
+    const body = new TextEncoder().encode("digest failure must be cleaned");
+    const attachment = account.attachments.create({
+      clientAttachmentId: "att_digest_cleanup",
+      filename: "digest-cleanup.txt",
+      mediaType: "text/plain",
+      sizeBytes: body.byteLength,
+      sha256: sha256(new TextEncoder().encode("not the uploaded bytes")),
+      correlationId: "cor_digest_cleanup",
+      expiresAt: "2026-08-27T00:30:00.000Z",
+    });
+    account.attachments.uploadContent(attachment.attachmentId, body);
+    account.close();
+
+    const response = await core.handle({
+      context: {
+        accountId: "acct_alice",
+        deviceId: "dev_1",
+        sessionId: "sess_digest_cleanup",
+        requestId: "req_digest_cleanup",
+        correlationId: "cor_digest_cleanup_handle",
+        pairingGeneration: 1,
+        grantRevision: 1,
+      },
+      method: "POST",
+      target: `/agent-life/v2/attachments/${attachment.attachmentId}/commit`,
+      idempotencyKey: "req_digest_cleanup",
+      now: new Date("2026-08-27T00:00:01.000Z"),
+    });
+    expect(response).toMatchObject({ error: { code: "ATTACHMENT_DIGEST_MISMATCH" } });
+
+    const reopened = await core.openGatewayAccount("acct_alice");
+    const row = reopened.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    const expectedPath = join(reopened.paths.attachments, `${attachment.attachmentId}.stage`);
+    expect(row.state).toBe("failed");
+    expect(row.content_path).toBe(expectedPath);
+    expect(existsSync(expectedPath)).toBe(true);
+
+    expect(reopened.attachments.cleanup()).toBe(1);
+    const cleaned = reopened.store.database
+      .prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string | null };
+    expect(cleaned.state).toBe("deleted");
+    expect(cleaned.content_path).toBeNull();
+    expect(existsSync(expectedPath)).toBe(false);
+    reopened.close();
   });
 });
