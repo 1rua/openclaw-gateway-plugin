@@ -56,6 +56,7 @@ export const CONFORMANCE_VECTOR_FILE_NAMES = [
   "attachments.json",
   "sse-events.json",
   "device-requests.json",
+  "conversation-ui.json",
 ] as const;
 
 const FIXTURE_REGISTRY_FILE_NAME = "dispatched-schema-fixtures.json";
