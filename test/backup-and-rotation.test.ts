@@ -9,7 +9,7 @@ import { GatewayBackupService } from "../src/core/backup-service.js";
 import { createGatewayCore } from "../src/core/gateway-core.js";
 import { IdentityRotationService } from "../src/core/identity-rotation.js";
 
-const tempRoot = (): string => mkdtempSync(join(tmpdir(), "agent-life-openclaw-backup-"));
+const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-backup-"));
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 describe("OpenClaw Gateway backup and identity rotation", () => {
@@ -48,9 +48,9 @@ describe("OpenClaw Gateway backup and identity rotation", () => {
       pairingGeneration: 1,
       grantRevision: 1,
       risk: "read",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},

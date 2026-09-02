@@ -239,7 +239,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         const account = buildAccount(root, request.context.accountId);
         try {
           assertNoIdentityOverride(request.body);
-          if (request.method === "GET" && request.target.startsWith("/agent-life/v2/events")) {
+          if (request.method === "GET" && request.target.startsWith("/open-android-intelligence/v2/events")) {
             const cursor = new URL(`https://gateway.local${request.target}`).searchParams.get("cursor");
             if (request.lastEventId !== undefined && request.lastEventId !== cursor) {
               return failure(request, "CURSOR_CONFLICT");
@@ -255,10 +255,10 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             }
           }
           const claimMatch = request.method === "POST"
-            ? request.target.match(/^\/agent-life\/v2\/device-requests\/([^/]+)\/claim$/)
+            ? request.target.match(/^\/open-android-intelligence\/v2\/device-requests\/([^/]+)\/claim$/)
             : undefined;
           const resultMatch = request.method === "POST"
-            ? request.target.match(/^\/agent-life\/v2\/device-requests\/([^/]+)\/result$/)
+            ? request.target.match(/^\/open-android-intelligence\/v2\/device-requests\/([^/]+)\/result$/)
             : undefined;
           const validateReplay = claimMatch?.[1]
             ? () => account.deviceRequests.validateClaimReplay({
@@ -282,7 +282,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 }
               : undefined;
           return runIdempotent(account, request, () => {
-            if (request.method === "POST" && request.target === "/agent-life/v2/conversations") {
+            if (request.method === "POST" && request.target === "/open-android-intelligence/v2/conversations") {
               assertSchema("conversation.create", request.body);
               const body = bodyRecord(request.body);
               return success(request, {
@@ -293,7 +293,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 }),
               });
             }
-            const messageMatch = request.target.match(/^\/agent-life\/v2\/conversations\/([^/]+)\/messages$/);
+            const messageMatch = request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/messages$/);
             if (request.method === "POST" && messageMatch?.[1]) {
               assertSchema("message.create", request.body);
               const body = bodyRecord(request.body);
@@ -311,7 +311,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 }),
               });
             }
-            if (request.method === "POST" && request.target === "/agent-life/v2/attachments") {
+            if (request.method === "POST" && request.target === "/open-android-intelligence/v2/attachments") {
               assertSchema("attachment.create", request.body);
               const body = bodyRecord(request.body);
               return success(request, {
@@ -325,14 +325,14 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 }),
               });
             }
-            const attachmentContentMatch = request.target.match(/^\/agent-life\/v2\/attachments\/([^/]+)\/content$/);
+            const attachmentContentMatch = request.target.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)\/content$/);
             if (request.method === "PUT" && attachmentContentMatch?.[1]) {
               if (!(request.body instanceof Uint8Array)) throw new Error("SCHEMA_INVALID");
               return success(request, {
                 attachment: account.attachments.uploadContent(attachmentContentMatch[1], request.body),
               });
             }
-            const attachmentCommitMatch = request.target.match(/^\/agent-life\/v2\/attachments\/([^/]+)\/commit$/);
+            const attachmentCommitMatch = request.target.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)\/commit$/);
             if (request.method === "POST" && attachmentCommitMatch?.[1]) {
               return success(request, {
                 attachment: account.attachments.commit(attachmentCommitMatch[1]),

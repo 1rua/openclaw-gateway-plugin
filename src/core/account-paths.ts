@@ -34,7 +34,7 @@ export const resolveWithin = (root: string, child: string): string => {
 };
 
 export const defaultOpenClawGatewayRoot = (): string =>
-  resolve(process.cwd(), ".agent-life-openclaw", "accounts");
+  resolve(process.cwd(), ".open-android-intelligence-openclaw", "accounts");
 
 export const accountPaths = (root: string, accountId: string): AccountPaths => {
   assertOpaqueId(accountId);

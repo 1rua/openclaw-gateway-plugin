@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGatewayCore } from "../src/core/gateway-core.js";
 
-const tempRoot = (): string => mkdtempSync(join(tmpdir(), "agent-life-openclaw-attachment-"));
+const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-attachment-"));
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 describe("OpenClaw Gateway attachment lifecycle", () => {
@@ -90,7 +90,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
         grantRevision: 1,
       },
       method: "PUT",
-      target: `/agent-life/v2/attachments/${attachment.attachmentId}/content`,
+      target: `/open-android-intelligence/v2/attachments/${attachment.attachmentId}/content`,
       idempotencyKey: "req_upload_rollback",
       body,
       now: new Date("2026-08-27T00:00:01.000Z"),
@@ -154,7 +154,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
         grantRevision: 1,
       },
       method: "POST",
-      target: `/agent-life/v2/attachments/${attachment.attachmentId}/commit`,
+      target: `/open-android-intelligence/v2/attachments/${attachment.attachmentId}/commit`,
       idempotencyKey: "req_digest_rollback",
       now: new Date("2026-08-27T00:00:01.000Z"),
     })).resolves.toMatchObject({ error: { code: "INTERNAL_ERROR" } });
@@ -210,7 +210,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
         grantRevision: 1,
       },
       method: "POST",
-      target: `/agent-life/v2/attachments/${attachment.attachmentId}/commit`,
+      target: `/open-android-intelligence/v2/attachments/${attachment.attachmentId}/commit`,
       idempotencyKey: "req_digest_cleanup",
       now: new Date("2026-08-27T00:00:01.000Z"),
     });

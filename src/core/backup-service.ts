@@ -5,7 +5,7 @@ import { openAccountStore } from "./account-store.js";
 import { AuditStore, type AuditRecord } from "./audit-store.js";
 
 export type PortableBackup = Readonly<{
-  format: "agent-life-gateway-portable-backup-v1";
+  format: "open-android-intelligence-gateway-portable-backup-v1";
   accountId: string;
   exportedAt: string;
   masterKeyContinuitySha256: string;
@@ -76,7 +76,7 @@ export class GatewayBackupService {
           });
         });
       return Object.freeze({
-        format: "agent-life-gateway-portable-backup-v1" as const,
+        format: "open-android-intelligence-gateway-portable-backup-v1" as const,
         accountId,
         exportedAt: now.toISOString(),
         masterKeyContinuitySha256: createHash("sha256").update(masterKeyRef, "utf8").digest("hex"),

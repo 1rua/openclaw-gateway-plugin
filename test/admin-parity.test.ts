@@ -97,10 +97,10 @@ const fakeOpenClawApi = (core: GatewayCore, hostVersion = "2026.7.1") => {
 };
 
 const registeredAdmin = async (version?: string) => {
-  const { registerAgentLifeGateway } = await import("../src/host/channel-adapter.js");
+  const { registerOpenAndroidIntelligenceGateway } = await import("../src/host/channel-adapter.js");
   const writes = { count: 0 };
   const api = fakeOpenClawApi(fakeCore(writes), version);
-  registerAgentLifeGateway(api);
+  registerOpenAndroidIntelligenceGateway(api);
   const program = createCommand("openclaw");
   const registrar = api.cliRegistrars[0];
   if (registrar === undefined) throw new Error("CLI registrar was not captured");
@@ -108,7 +108,7 @@ const registeredAdmin = async (version?: string) => {
     program,
     parentPath: [],
     config: {},
-    workspaceDir: "/tmp/agent-life-test",
+    workspaceDir: "/tmp/open-android-intelligence-test",
     logger: {},
   });
   const panel = api.adminPanels[0] as AdminPanel | undefined;
@@ -121,26 +121,26 @@ const invoke = async (command: CommandNode, ...args: readonly unknown[]) => {
   return command.actionHandler(...args);
 };
 
-describe("OpenClaw Agent-life admin surfaces", () => {
+describe("OpenClaw Open Android Intelligence admin surfaces", () => {
   it("registers Commander account subcommands and gives UI and CLI the same AdminService semantics", async () => {
     const { api, writes, panel, program } = await registeredAdmin();
     expect(api.gatewayMethods).toEqual([]);
     expect(api.cliOptions[0]).toEqual({
       parentPath: [],
-      commands: ["agent-life"],
+      commands: ["open-android-intelligence"],
       descriptors: [{
-        name: "agent-life",
-        description: "Manage Agent-life Gateway accounts",
+        name: "open-android-intelligence",
+        description: "Manage Open Android Intelligence Gateway accounts",
         hasSubcommands: true,
       }],
     });
 
-    const agentLife = findCommand(program, ["agent-life"]);
-    const account = findCommand(program, ["agent-life", "account"]);
-    const create = findCommand(program, ["agent-life", "account", "create"]);
-    const status = findCommand(program, ["agent-life", "account", "status"]);
-    const deleteAccount = findCommand(program, ["agent-life", "account", "delete"]);
-    expect(agentLife?.descriptionText).toBe("Manage Agent-life Gateway accounts");
+    const openAndroidIntelligence = findCommand(program, ["open-android-intelligence"]);
+    const account = findCommand(program, ["open-android-intelligence", "account"]);
+    const create = findCommand(program, ["open-android-intelligence", "account", "create"]);
+    const status = findCommand(program, ["open-android-intelligence", "account", "status"]);
+    const deleteAccount = findCommand(program, ["open-android-intelligence", "account", "delete"]);
+    expect(openAndroidIntelligence?.descriptionText).toBe("Manage Open Android Intelligence Gateway accounts");
     expect(account).toBeDefined();
     expect(create?.options).toContain("--confirm-local");
     expect(status).toBeDefined();
@@ -162,8 +162,8 @@ describe("OpenClaw Agent-life admin surfaces", () => {
 
   it("rejects account writes from both registered surfaces before local confirmation", async () => {
     const { writes, panel, program } = await registeredAdmin();
-    const create = findCommand(program, ["agent-life", "account", "create"]);
-    const deleteAccount = findCommand(program, ["agent-life", "account", "delete"]);
+    const create = findCommand(program, ["open-android-intelligence", "account", "create"]);
+    const deleteAccount = findCommand(program, ["open-android-intelligence", "account", "delete"]);
 
     await expect(panel.createAccount({ accountId: "account-a" })).resolves.toMatchObject({
       ok: false,
@@ -186,8 +186,8 @@ describe("OpenClaw Agent-life admin surfaces", () => {
 
   it("keeps the registered panel and CLI read-only for an incompatible host", async () => {
     const { writes, panel, program } = await registeredAdmin("2026.8.0");
-    const create = findCommand(program, ["agent-life", "account", "create"]);
-    const status = findCommand(program, ["agent-life", "account", "status"]);
+    const create = findCommand(program, ["open-android-intelligence", "account", "create"]);
+    const status = findCommand(program, ["open-android-intelligence", "account", "status"]);
 
     expect(panel.readOnly).toBe(true);
     await expect(panel.createAccount({ accountId: "account-a", localConfirmation: true })).resolves.toMatchObject({

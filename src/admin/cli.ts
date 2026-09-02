@@ -100,11 +100,11 @@ const confirmedOption = (value: unknown): boolean => (
 
 const registerAdminCommands = (context: OpenClawCliContext, service: AdminService): void => {
   const root = context.program
-    .command("agent-life")
-    .description("Manage Agent-life Gateway accounts");
+    .command("open-android-intelligence")
+    .description("Manage Open Android Intelligence Gateway accounts");
   const account = root
     .command("account")
-    .description("Manage Agent-life Gateway accounts");
+    .description("Manage Open Android Intelligence Gateway accounts");
 
   account
     .command("create <accountId>")

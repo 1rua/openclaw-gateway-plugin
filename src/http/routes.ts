@@ -190,8 +190,8 @@ const responseIdentity = (request: GatewayRouteRequest): Readonly<{
   requestId: string;
   correlationId: string;
 }> => ({
-  requestId: request.verifiedRequest?.context.requestId ?? "agent-life-route",
-  correlationId: request.verifiedRequest?.context.correlationId ?? "agent-life-route",
+  requestId: request.verifiedRequest?.context.requestId ?? "open-android-intelligence-route",
+  correlationId: request.verifiedRequest?.context.correlationId ?? "open-android-intelligence-route",
 });
 
 const failureResponse = (
@@ -408,13 +408,13 @@ const routeDefinitions: readonly Readonly<{
   path: string;
   match: "exact" | "prefix";
 }>[] = Object.freeze([
-  Object.freeze({ path: "/agent-life/v2/negotiate", match: "exact" }),
-  Object.freeze({ path: "/agent-life/v2/events", match: "exact" }),
-  Object.freeze({ path: "/agent-life/v2/conversations", match: "exact" }),
-  Object.freeze({ path: "/agent-life/v2/conversations/", match: "prefix" }),
-  Object.freeze({ path: "/agent-life/v2/attachments", match: "exact" }),
-  Object.freeze({ path: "/agent-life/v2/attachments/", match: "prefix" }),
-  Object.freeze({ path: "/agent-life/v2/device-requests/", match: "prefix" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/negotiate", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/events", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/conversations", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/conversations/", match: "prefix" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/attachments", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/attachments/", match: "prefix" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/device-requests/", match: "prefix" }),
 ]);
 
 export const createGatewayRoutes = (services: GatewayRouteServices): readonly GatewayHttpRoute[] => {

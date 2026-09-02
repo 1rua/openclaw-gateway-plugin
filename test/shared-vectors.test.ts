@@ -58,7 +58,7 @@ describe("OpenClaw Gateway shared vector consumption", () => {
   });
 
   it("fails closed when the one shared fixture registry is substituted", () => {
-    const root = copyContractTo(mkdtempSync(join(tmpdir(), "agent-life-openclaw-vectors-")));
+    const root = copyContractTo(mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-vectors-")));
     const registryPath = join(root, "gateway-contract", "vectors", "dispatched-schema-fixtures.json");
     const registry = JSON.parse(readFileSync(registryPath, "utf8")) as {
       catalogEntries: Array<{ key: { schemaSha256: string } }>;

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGatewayCore } from "../src/core/gateway-core.js";
 
-const tempRoot = (): string => mkdtempSync(join(tmpdir(), "agent-life-openclaw-session-"));
+const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-session-"));
 
 describe("OpenClaw Gateway session service", () => {
   it("rotates refresh credentials and revokes a device when an old refresh credential is reused", async () => {

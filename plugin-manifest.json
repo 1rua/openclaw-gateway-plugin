@@ -1,5 +1,5 @@
 {
-  "id": "agent-life-gateway",
+  "id": "open-android-intelligence-gateway",
   "backend": "openclaw",
   "upstream": { "release": "2026.7.1-2", "tag": "v2026.7.1-2", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "protocolVersion": "gateway-protocol-v2",

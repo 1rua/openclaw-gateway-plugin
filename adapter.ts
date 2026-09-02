@@ -6,9 +6,9 @@ import {
   type FakeAdapter,
 } from "../shared/adapter.js";
 import {
-  registerAgentLifeGateway,
+  registerOpenAndroidIntelligenceGateway,
   composeGatewayServices,
-  AGENT_LIFE_CHANNEL,
+  OPEN_ANDROID_INTELLIGENCE_CHANNEL,
   type OpenClawPluginApi,
 } from "./src/host/channel-adapter.js";
 import {
@@ -27,7 +27,7 @@ import {
 } from "./src/http/routes.js";
 
 export {
-  AGENT_LIFE_CHANNEL,
+  OPEN_ANDROID_INTELLIGENCE_CHANNEL,
   bindAdminService,
   composeGatewayServices,
   createAdminPanel,
@@ -36,13 +36,13 @@ export {
   createGatewayRoutes,
   gatewayRoutes,
   OPENCLAW_HOST_API,
-  registerAgentLifeGateway,
+  registerOpenAndroidIntelligenceGateway,
   runAdminCommand,
 };
 export type { AdminPanel, AdminResult, AdminService, OpenClawPluginApi };
 
 export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
-  id: "agent-life-gateway",
+  id: "open-android-intelligence-gateway",
   backend: "openclaw",
   upstream: Object.freeze({ release: "2026.7.1-2", tag: "v2026.7.1-2", commit: OPENCLAW_HOST_API.verifiedCommit }),
   protocolVersion: "gateway-protocol-v2",
@@ -83,10 +83,10 @@ export const createOpenClawAdapter = (options: OpenClawAdapterOptions): FakeAdap
 };
 
 export const OPENCLAW_PLUGIN = Object.freeze({
-  id: "agent-life-gateway",
-  name: "Agent-life Gateway",
-  description: "Agent-life Gateway Protocol v2 channel and management adapter",
-  register: registerAgentLifeGateway,
+  id: "open-android-intelligence-gateway",
+  name: "Open Android Intelligence Gateway",
+  description: "Open Android Intelligence Gateway Protocol v2 channel and management adapter",
+  register: registerOpenAndroidIntelligenceGateway,
 });
 
 export default OPENCLAW_PLUGIN;

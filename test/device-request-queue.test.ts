@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGatewayCore } from "../src/core/gateway-core.js";
 
-const tempRoot = (): string => mkdtempSync(join(tmpdir(), "agent-life-openclaw-device-"));
+const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-device-"));
 
 describe("OpenClaw Gateway device request queue", () => {
   it("binds claim/result to account, device, generation and grant revision across recovery", async () => {
@@ -21,9 +21,9 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       risk: "read",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: { limit: 1 },
@@ -36,9 +36,9 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       risk: "write",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -51,9 +51,9 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       risk: "high-privilege-ephemeral",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -178,9 +178,9 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 2,
       grantRevision: 3,
       risk: "write",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -205,9 +205,9 @@ describe("OpenClaw Gateway device request queue", () => {
       pairingGeneration: 2,
       grantRevision: 3,
       risk: "write",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},

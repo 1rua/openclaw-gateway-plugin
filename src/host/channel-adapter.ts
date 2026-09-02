@@ -35,12 +35,12 @@ export type OpenClawOperatorScope =
   | "operator.talk.secrets";
 
 export type OpenClawChannelPlugin = Readonly<{
-  id: "agent-life-gateway";
+  id: "open-android-intelligence-gateway";
   meta: Readonly<{
-    id: "agent-life-gateway";
-    label: "Agent-life Gateway";
-    selectionLabel: "Agent-life Gateway";
-    docsPath: "/gateway/agent-life";
+    id: "open-android-intelligence-gateway";
+    label: "Open Android Intelligence Gateway";
+    selectionLabel: "Open Android Intelligence Gateway";
+    docsPath: "/gateway/open-android-intelligence";
     blurb: string;
   }>;
   capabilities: Readonly<{
@@ -56,13 +56,13 @@ export type OpenClawChannelPlugin = Readonly<{
   }>>;
 }>;
 
-export const AGENT_LIFE_CHANNEL: OpenClawChannelPlugin = Object.freeze({
-  id: "agent-life-gateway" as const,
+export const OPEN_ANDROID_INTELLIGENCE_CHANNEL: OpenClawChannelPlugin = Object.freeze({
+  id: "open-android-intelligence-gateway" as const,
   meta: Object.freeze({
-    id: "agent-life-gateway" as const,
-    label: "Agent-life Gateway" as const,
-    selectionLabel: "Agent-life Gateway" as const,
-    docsPath: "/gateway/agent-life" as const,
+    id: "open-android-intelligence-gateway" as const,
+    label: "Open Android Intelligence Gateway" as const,
+    selectionLabel: "Open Android Intelligence Gateway" as const,
+    docsPath: "/gateway/open-android-intelligence" as const,
     blurb: "Gateway Protocol v2 over the OpenClaw Gateway host",
   }),
   capabilities: {
@@ -168,7 +168,7 @@ const apiHostVersion = (api: OpenClawPluginApi): string | undefined => api.hostV
 const apiStorageRoot = (api: OpenClawPluginApi): string | undefined =>
   api.dataDir
   ?? api.runtime?.dataDir
-  ?? (api.resolvePath === undefined ? undefined : api.resolvePath(".agent-life-openclaw/accounts"));
+  ?? (api.resolvePath === undefined ? undefined : api.resolvePath(".open-android-intelligence-openclaw/accounts"));
 
 const apiCore = (api: OpenClawPluginApi): GatewayCore | undefined =>
   api.gatewayCore ?? api.runtime?.gatewayCore;
@@ -185,17 +185,17 @@ const registerManagementSurface = (api: OpenClawPluginApi, services: GatewayServ
   if (api.registerCli !== undefined) {
     api.registerCli(createAdminCliRegistrar(services.admin), {
       parentPath: [],
-      commands: ["agent-life"],
+      commands: ["open-android-intelligence"],
       descriptors: [{
-        name: "agent-life",
-        description: "Manage Agent-life Gateway accounts",
+        name: "open-android-intelligence",
+        description: "Manage Open Android Intelligence Gateway accounts",
         hasSubcommands: true,
       }],
     });
   }
 };
 
-export const registerAgentLifeGateway = (api: OpenClawPluginApi): void => {
+export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): void => {
   const services = composeGatewayServices({
     core: apiCore(api),
     storageRoot: apiStorageRoot(api),
@@ -205,7 +205,7 @@ export const registerAgentLifeGateway = (api: OpenClawPluginApi): void => {
     maxBodyBytes: api.maxBodyBytes,
   });
   api.registerChannel(Object.freeze({
-    plugin: AGENT_LIFE_CHANNEL,
+    plugin: OPEN_ANDROID_INTELLIGENCE_CHANNEL,
   }));
   for (const route of services.exposure.routes) {
     api.registerHttpRoute({

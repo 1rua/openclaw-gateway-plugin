@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGatewayCore, openGatewayAccount } from "../src/core/gateway-core.js";
 
-const tempRoot = (): string => mkdtempSync(join(tmpdir(), "agent-life-openclaw-isolation-"));
+const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-isolation-"));
 const context = (overrides: Partial<{
   accountId: string;
   deviceId: string;
@@ -97,7 +97,7 @@ describe("OpenClaw Gateway account isolation", () => {
     await expect(core.handle({
       context: context({ requestId: "req_identity", correlationId: "cor_identity" }),
       method: "POST",
-      target: "/agent-life/v2/conversations",
+      target: "/open-android-intelligence/v2/conversations",
       idempotencyKey: "req_identity",
       body: { clientConversationId: "conv_client_identity", accountId: "acct_bob" },
     })).resolves.toMatchObject({ error: { code: "IDENTITY_OVERRIDE_REJECTED" } });
@@ -105,7 +105,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const createRequest = {
       context: context({ requestId: "req_create", correlationId: "cor_create" }),
       method: "POST" as const,
-      target: "/agent-life/v2/conversations",
+      target: "/open-android-intelligence/v2/conversations",
       idempotencyKey: "req_create",
       body: { clientConversationId: "conv_client_handle", title: "Handle thread" },
       now: new Date("2026-08-27T00:00:00.000Z"),
@@ -131,13 +131,13 @@ describe("OpenClaw Gateway account isolation", () => {
     await expect(core.handle({
       context: context({ requestId: "req_cursor_conflict", correlationId: "cor_cursor_conflict" }),
       method: "GET",
-      target: `/agent-life/v2/events?cursor=${oldEvent.eventId}`,
+      target: `/open-android-intelligence/v2/events?cursor=${oldEvent.eventId}`,
       lastEventId: "evt_different",
     })).resolves.toMatchObject({ error: { code: "CURSOR_CONFLICT" } });
     await expect(core.handle({
       context: context({ requestId: "req_cursor_expired", correlationId: "cor_cursor_expired" }),
       method: "GET",
-      target: `/agent-life/v2/events?cursor=${oldEvent.eventId}`,
+      target: `/open-android-intelligence/v2/events?cursor=${oldEvent.eventId}`,
       lastEventId: oldEvent.eventId,
       now: new Date("2026-08-25T12:00:01.000Z"),
     })).resolves.toMatchObject({
@@ -158,9 +158,9 @@ describe("OpenClaw Gateway account isolation", () => {
       pairingGeneration: 1,
       grantRevision: 7,
       risk: "read",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -172,7 +172,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const claim = await core.handle({
       context: context({ requestId: "req_claim", correlationId: "cor_claim", grantRevision: 7 }),
       method: "POST",
-      target: "/agent-life/v2/device-requests/device_req_handle/claim",
+      target: "/open-android-intelligence/v2/device-requests/device_req_handle/claim",
       idempotencyKey: "req_claim",
       now: new Date("2026-08-27T00:01:00.000Z"),
     });
@@ -181,7 +181,7 @@ describe("OpenClaw Gateway account isolation", () => {
     await expect(core.handle({
       context: context({ requestId: "req_result", correlationId: "cor_result", grantRevision: 8 }),
       method: "POST",
-      target: "/agent-life/v2/device-requests/device_req_handle/result",
+      target: "/open-android-intelligence/v2/device-requests/device_req_handle/result",
       idempotencyKey: "req_result",
       body: {
         claimId: receipt.claimId,
@@ -202,9 +202,9 @@ describe("OpenClaw Gateway account isolation", () => {
       pairingGeneration: 4,
       grantRevision: 7,
       risk: "read",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -216,7 +216,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const claimRequest = {
       context: context({ requestId: "req_replay_claim", correlationId: "cor_replay_claim", pairingGeneration: 4, grantRevision: 7 }),
       method: "POST" as const,
-      target: "/agent-life/v2/device-requests/device_req_replay_binding/claim",
+      target: "/open-android-intelligence/v2/device-requests/device_req_replay_binding/claim",
       idempotencyKey: "req_replay_claim",
       now: new Date("2026-08-27T00:01:00.000Z"),
     };
@@ -235,7 +235,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const resultRequest = {
       context: context({ requestId: "req_replay_result", correlationId: "cor_replay_result", pairingGeneration: 4, grantRevision: 7 }),
       method: "POST" as const,
-      target: "/agent-life/v2/device-requests/device_req_replay_binding/result",
+      target: "/open-android-intelligence/v2/device-requests/device_req_replay_binding/result",
       idempotencyKey: "req_replay_result",
       body: {
         claimId: receipt.claimId,
@@ -262,9 +262,9 @@ describe("OpenClaw Gateway account isolation", () => {
       pairingGeneration: 2,
       grantRevision: 3,
       risk: "write",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -276,7 +276,7 @@ describe("OpenClaw Gateway account isolation", () => {
     await expect(core.handle({
       context: context({ requestId: "req_handle_expiry", correlationId: "cor_handle_expiry", pairingGeneration: 2, grantRevision: 3 }),
       method: "POST",
-      target: "/agent-life/v2/device-requests/device_req_handle_expiry/claim",
+      target: "/open-android-intelligence/v2/device-requests/device_req_handle_expiry/claim",
       idempotencyKey: "req_handle_expiry",
       now: new Date("2030-01-01T00:16:00.000Z"),
     })).resolves.toMatchObject({ error: { code: "OUTCOME_UNKNOWN" } });
@@ -296,9 +296,9 @@ describe("OpenClaw Gateway account isolation", () => {
       pairingGeneration: 2,
       grantRevision: 3,
       risk: "read",
-      capability: { id: "org.agentlife.sms.query", version: "1.0.0" },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
       provider: {
-        pluginId: "org.agentlife.sms",
+        pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       parameters: {},
@@ -310,7 +310,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const claim = await core.handle({
       context: context({ requestId: "req_terminal_claim", correlationId: "cor_terminal_claim", pairingGeneration: 2, grantRevision: 3 }),
       method: "POST",
-      target: "/agent-life/v2/device-requests/device_req_terminal_replay/claim",
+      target: "/open-android-intelligence/v2/device-requests/device_req_terminal_replay/claim",
       idempotencyKey: "req_terminal_claim",
       now: new Date("2026-08-27T00:01:00.000Z"),
     });
@@ -318,7 +318,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const resultRequest = {
       context: context({ requestId: "req_terminal_result", correlationId: "cor_terminal_result", pairingGeneration: 2, grantRevision: 3 }),
       method: "POST" as const,
-      target: "/agent-life/v2/device-requests/device_req_terminal_replay/result",
+      target: "/open-android-intelligence/v2/device-requests/device_req_terminal_replay/result",
       idempotencyKey: "req_terminal_result",
       body: {
         claimId: receipt.claimId,
@@ -352,7 +352,7 @@ describe("OpenClaw Gateway account isolation", () => {
     await expect(core.handle({
       context: context({ requestId: "req_atomic", correlationId: "cor_atomic" }),
       method: "POST",
-      target: "/agent-life/v2/conversations",
+      target: "/open-android-intelligence/v2/conversations",
       idempotencyKey: "req_atomic",
       body: { clientConversationId: "conv_client_atomic", title: "Atomic thread" },
       now: new Date("2026-08-27T00:00:00.000Z"),
@@ -382,7 +382,7 @@ describe("OpenClaw Gateway account isolation", () => {
     await expect(core.handle({
       context: context({ requestId: "req_unexpected_work", correlationId: "cor_unexpected_work" }),
       method: "POST",
-      target: "/agent-life/v2/conversations",
+      target: "/open-android-intelligence/v2/conversations",
       idempotencyKey: "req_unexpected_work",
       body: { clientConversationId: "conv_client_unexpected_work", title: "Should roll back" },
       now: new Date("2026-08-27T00:00:00.000Z"),

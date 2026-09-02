@@ -107,7 +107,7 @@ export const createAdminService = (options: AdminServiceOptions = {}): AdminServ
 };
 
 export type AdminPanel = Readonly<{
-  id: "agent-life-gateway";
+  id: "open-android-intelligence-gateway";
   localOnly: true;
   remotePort: null;
   readOnly: boolean;
@@ -117,7 +117,7 @@ export type AdminPanel = Readonly<{
 }>;
 
 export const createAdminPanel = (service: AdminService): AdminPanel => Object.freeze({
-  id: "agent-life-gateway" as const,
+  id: "open-android-intelligence-gateway" as const,
   localOnly: true as const,
   remotePort: null,
   readOnly: service.readOnly,

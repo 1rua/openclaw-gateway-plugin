@@ -86,11 +86,11 @@ const rawResponse = (): {
 };
 
 const routeCases = [
-  { path: "/agent-life/v2/negotiate", method: "POST" as const, body: "{}" },
-  { path: "/agent-life/v2/events?cursor=cursor-1", method: "GET" as const, body: "" },
-  { path: "/agent-life/v2/conversations", method: "POST" as const, body: "{}" },
-  { path: "/agent-life/v2/attachments", method: "POST" as const, body: "{}" },
-  { path: "/agent-life/v2/device-requests/request-1", method: "GET" as const, body: "" },
+  { path: "/open-android-intelligence/v2/negotiate", method: "POST" as const, body: "{}" },
+  { path: "/open-android-intelligence/v2/events?cursor=cursor-1", method: "GET" as const, body: "" },
+  { path: "/open-android-intelligence/v2/conversations", method: "POST" as const, body: "{}" },
+  { path: "/open-android-intelligence/v2/attachments", method: "POST" as const, body: "{}" },
+  { path: "/open-android-intelligence/v2/device-requests/request-1", method: "GET" as const, body: "" },
 ] as const;
 
 const expectHostApiRejected = async (hostApi: HostApiCompatibility): Promise<void> => {
@@ -107,11 +107,11 @@ const expectHostApiRejected = async (hostApi: HostApiCompatibility): Promise<voi
       return verifiedRequest(input);
     },
   });
-  const route = exposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+  const route = exposure.routes.find((candidate) => candidate.path === "/open-android-intelligence/v2/negotiate");
   if (route === undefined) throw new Error("negotiate route missing");
   const routeResponse = rawResponse();
   await expect(route.handler(
-    rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
+    rawRequest("/open-android-intelligence/v2/negotiate", "POST", "{}"),
     routeResponse.response,
   )).resolves.toBe(true);
   expect(routeResponse.state.statusCode).toBe(503);
@@ -145,7 +145,7 @@ const expectHostApiRejected = async (hostApi: HostApiCompatibility): Promise<voi
   expect(adminWrites.count).toBe(0);
 };
 
-describe("OpenClaw Agent-life exposure modes", () => {
+describe("OpenClaw Open Android Intelligence exposure modes", () => {
   it("uses the same raw route cases and verified Core behavior for all three modes", async () => {
     const legacyAdapter = await import("../adapter.js");
     expect("createGatewayExposure" in legacyAdapter).toBe(true);
@@ -206,10 +206,10 @@ describe("OpenClaw Agent-life exposure modes", () => {
           throw new Error("incompatible host must not call verifier");
         },
       });
-      const route = exposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+      const route = exposure.routes.find((candidate) => candidate.path === "/open-android-intelligence/v2/negotiate");
       if (route === undefined) throw new Error("negotiate route missing");
       const { response, state } = rawResponse();
-      await expect(route.handler(rawRequest("/agent-life/v2/negotiate", "POST", "{}"), response)).resolves.toBe(true);
+      await expect(route.handler(rawRequest("/open-android-intelligence/v2/negotiate", "POST", "{}"), response)).resolves.toBe(true);
       results.push({ statusCode: state.statusCode, body: JSON.parse(state.body) });
     }
 
@@ -228,10 +228,10 @@ describe("OpenClaw Agent-life exposure modes", () => {
         core: fakeCore({ requests: [] }),
         hostVersion,
       });
-      const route = exposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+      const route = exposure.routes.find((candidate) => candidate.path === "/open-android-intelligence/v2/negotiate");
       if (route === undefined) throw new Error("negotiate route missing");
       const { response, state } = rawResponse();
-      await expect(route.handler(rawRequest("/agent-life/v2/negotiate", "POST", "{}"), response)).resolves.toBe(true);
+      await expect(route.handler(rawRequest("/open-android-intelligence/v2/negotiate", "POST", "{}"), response)).resolves.toBe(true);
       expect(state.statusCode).toBe(503);
       expect(JSON.parse(state.body)).toMatchObject({ error: { code: "HOST_INCOMPATIBLE" } });
 
@@ -254,11 +254,11 @@ describe("OpenClaw Agent-life exposure modes", () => {
       hostApi: validCustomHostApi,
       verifyRequest: (input) => verifiedRequest(input),
     });
-    const validCustomRoute = validCustomExposure.routes.find((candidate) => candidate.path === "/agent-life/v2/negotiate");
+    const validCustomRoute = validCustomExposure.routes.find((candidate) => candidate.path === "/open-android-intelligence/v2/negotiate");
     if (validCustomRoute === undefined) throw new Error("negotiate route missing");
     const validCustomResponse = rawResponse();
     await expect(validCustomRoute.handler(
-      rawRequest("/agent-life/v2/negotiate", "POST", "{}"),
+      rawRequest("/open-android-intelligence/v2/negotiate", "POST", "{}"),
       validCustomResponse.response,
     )).resolves.toBe(true);
     expect(validCustomResponse.state.statusCode).toBe(200);
