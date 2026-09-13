@@ -14,6 +14,8 @@ describe("OpenClaw Gateway session service", () => {
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
 
+    // Only an account with a recorded digest can be logged into.
+    alice.credentials.setPassword("correct horse battery staple");
     const first = alice.sessions.createPasswordSession({
       username: "alice",
       password: "correct horse battery staple",

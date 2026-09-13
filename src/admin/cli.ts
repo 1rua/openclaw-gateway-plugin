@@ -18,23 +18,48 @@ const invalidArguments = (service: AdminService): AdminResult => Object.freeze({
   error: Object.freeze({ code: "ADMIN_ARGUMENTS_INVALID", message: "ADMIN_ARGUMENTS_INVALID" }),
 });
 
+type ParsedFlags = Readonly<{ confirmed: boolean; password: string | undefined }>;
+
+/** The closed flag set of the account commands; undefined means invalid input. */
+const parseFlags = (tokens: readonly string[]): ParsedFlags | undefined => {
+  let confirmed = false;
+  let password: string | undefined;
+  let index = 0;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token === "--confirm-local") {
+      confirmed = true;
+      index += 1;
+      continue;
+    }
+    if (token === "--password" && index + 1 < tokens.length) {
+      password = tokens[index + 1];
+      index += 2;
+      continue;
+    }
+    return undefined;
+  }
+  return { confirmed, password };
+};
+
+const createInput = (accountId: string, flags: ParsedFlags) => ({
+  accountId,
+  ...(flags.password === undefined ? {} : { password: flags.password }),
+  ...(flags.confirmed ? { localConfirmation: true } : {}),
+});
+
 const parseCommand = (args: readonly string[], service: AdminService): AdminCommand | AdminResult => {
   const [first, second, third, ...rest] = args;
   if (first === "account" && second === "create" && third !== undefined) {
-    const localConfirmation = rest.length === 1 && rest[0] === "--confirm-local";
-    if (rest.length > 1 || (rest.length === 1 && !localConfirmation)) return invalidArguments(service);
-    return {
-      command: "account.create",
-      input: { accountId: third, ...(localConfirmation ? { localConfirmation: true } : {}) },
-    };
+    const flags = parseFlags(rest);
+    if (flags === undefined) return invalidArguments(service);
+    return { command: "account.create", input: createInput(third, flags) };
   }
   if (first === "create-account" && second !== undefined) {
-    const localConfirmation = third === "--confirm-local" && rest.length === 0;
-    if (third !== undefined && !localConfirmation) return invalidArguments(service);
-    return {
-      command: "account.create",
-      input: { accountId: second, ...(localConfirmation ? { localConfirmation: true } : {}) },
-    };
+    const flags = parseFlags(rest);
+    if (third !== undefined) return invalidArguments(service);
+    if (flags === undefined) return invalidArguments(service);
+    return { command: "account.create", input: createInput(second, flags) };
   }
   if (first === "status" && second === undefined && third === undefined) {
     return { command: "admin.status" };
@@ -43,9 +68,13 @@ const parseCommand = (args: readonly string[], service: AdminService): AdminComm
     return { command: "admin.status" };
   }
   if (first === "account" && second === "delete" && third !== undefined) {
-    const localConfirmation = rest.length === 1 && rest[0] === "--confirm-local";
-    if (rest.length > 1 || (rest.length === 1 && !localConfirmation)) return invalidArguments(service);
-    return { command: "account.delete", accountId: third, ...(localConfirmation ? { localConfirmation: true } : {}) };
+    const flags = parseFlags(rest);
+    if (flags === undefined) return invalidArguments(service);
+    return {
+      command: "account.delete",
+      accountId: third,
+      ...(flags.confirmed ? { localConfirmation: true } : {}),
+    };
   }
   return invalidArguments(service);
 };
@@ -98,6 +127,12 @@ const confirmedOption = (value: unknown): boolean => (
   && (value as { confirmLocal?: unknown }).confirmLocal === true
 );
 
+const stringOption = (value: unknown, key: string): string | undefined => {
+  if (typeof value !== "object" || value === null || !(key in value)) return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
+};
+
 const registerAdminCommands = (context: OpenClawCliContext, service: AdminService): void => {
   const root = context.program
     .command("open-android-intelligence")
@@ -110,11 +145,15 @@ const registerAdminCommands = (context: OpenClawCliContext, service: AdminServic
     .command("create <accountId>")
     .description("Create a Gateway account")
     .option("--confirm-local", "Confirm this write on the local host")
+    .option("--password <password>", "Account password; only its scrypt digest is stored")
     .action((accountId, options) => executeAdminCommand(service, [
       "account",
       "create",
       String(accountId),
       ...(confirmedOption(options) ? ["--confirm-local"] : []),
+      ...(stringOption(options, "password") === undefined
+        ? []
+        : ["--password", stringOption(options, "password")!]),
     ]));
 
   account

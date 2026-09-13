@@ -52,10 +52,21 @@ const findCommand = (root: CommandNode, names: readonly string[]): CommandNode |
   return current;
 };
 
-const fakeCore = (writes: { count: number }): GatewayCore => ({
+const fakeCore = (writes: { count: number; passwords: string[]; deleted: string[] }): GatewayCore => ({
   openGatewayAccount: async (accountId) => {
     writes.count += 1;
-    return { accountId, close: () => undefined } as never;
+    return {
+      accountId,
+      credentials: {
+        setPassword: (password: string): void => { writes.passwords.push(password); },
+      },
+      close: () => undefined,
+    } as never;
+  },
+  accountExists: (): boolean => true,
+  deleteGatewayAccount: (accountId: string): boolean => {
+    writes.deleted.push(accountId);
+    return true;
   },
   handle: async () => {
     throw new Error("not used by admin service");
@@ -98,7 +109,7 @@ const fakeOpenClawApi = (core: GatewayCore, hostVersion = "2026.7.1") => {
 
 const registeredAdmin = async (version?: string) => {
   const { registerOpenAndroidIntelligenceGateway } = await import("../src/host/channel-adapter.js");
-  const writes = { count: 0 };
+  const writes = { count: 0, passwords: [] as string[], deleted: [] as string[] };
   const api = fakeOpenClawApi(fakeCore(writes), version);
   registerOpenAndroidIntelligenceGateway(api);
   const program = createCommand("openclaw");
@@ -143,14 +154,29 @@ describe("OpenClaw Open Android Intelligence admin surfaces", () => {
     expect(openAndroidIntelligence?.descriptionText).toBe("Manage Open Android Intelligence Gateway accounts");
     expect(account).toBeDefined();
     expect(create?.options).toContain("--confirm-local");
+    expect(create?.options).toContain("--password <password>");
     expect(status).toBeDefined();
     expect(deleteAccount?.options).toContain("--confirm-local");
 
-    const input = Object.freeze({ accountId: "account-a", localConfirmation: true });
+    // A password is what makes the account usable, so a write without one is
+    // refused instead of creating an account nobody can log into.
+    await expect(panel.createAccount({ accountId: "account-a", localConfirmation: true })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "PASSWORD_REQUIRED" },
+    });
+
+    const input = Object.freeze({ accountId: "account-a", password: "pw", localConfirmation: true });
     const uiCreate = await panel.createAccount(input);
-    const cliCreate = await invoke(create!, "account-a", { confirmLocal: true });
+    const cliCreate = await invoke(create!, "account-a", { confirmLocal: true, password: "pw" });
+    expect(uiCreate.ok).toBe(true);
     expect(cliCreate).toEqual(uiCreate);
     expect(writes.count).toBe(2);
+    expect(writes.passwords).toEqual(["pw", "pw"]);
+
+    // Deletion is a real resource-level operation on both surfaces.
+    expect(await panel.deleteAccount({ accountId: "account-a", localConfirmation: true })).toMatchObject({ ok: true });
+    expect(await invoke(deleteAccount!, "account-a", { confirmLocal: true })).toMatchObject({ ok: true });
+    expect(writes.deleted).toEqual(["account-a", "account-a"]);
 
     const uiStatus = await panel.status();
     const cliStatus = await invoke(status!);

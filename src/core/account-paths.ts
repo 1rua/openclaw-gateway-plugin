@@ -33,8 +33,24 @@ export const resolveWithin = (root: string, child: string): string => {
   return resolvedChild;
 };
 
-export const defaultOpenClawGatewayRoot = (): string =>
-  resolve(process.cwd(), ".open-android-intelligence-openclaw", "accounts");
+/** Explicit override for hosts that keep Gateway data outside the host data directory. */
+export const DEFAULT_ROOT_ENVIRONMENT_VARIABLE = "OPEN_ANDROID_INTELLIGENCE_GATEWAY_ROOT";
+
+/**
+ * The account root when the host names no data directory.
+ *
+ * Resolution is explicit: the configured root, else a loud failure. The current
+ * working directory is never used — a data root that followed the shell would
+ * silently create a second, empty Gateway next to whatever directory happened to
+ * be current, and an operator would see an account that "disappeared".
+ */
+export const defaultOpenClawGatewayRoot = (): string => {
+  const configured = process.env[DEFAULT_ROOT_ENVIRONMENT_VARIABLE];
+  if (configured !== undefined && configured.trim().length > 0) {
+    return resolve(configured.trim(), "accounts");
+  }
+  throw new Error("STORAGE_ROOT_REQUIRED");
+};
 
 export const accountPaths = (root: string, accountId: string): AccountPaths => {
   assertOpaqueId(accountId);

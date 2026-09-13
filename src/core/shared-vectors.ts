@@ -49,6 +49,15 @@ import {
 
 export const OPENCLAW_IMPLEMENTATION_ID = "openclaw-typescript";
 
+/**
+ * The exact six shared vector documents of contract section 16.
+ *
+ * The enumeration is closed: its `schemaName` set does not include the
+ * conversation-UI schemas, so `conversation-ui.json` is a local suite
+ * (`gateway-contract/test/conversation-ui.test.ts`) rather than a shared
+ * conformance input. Running it here made the runners emit case ids the
+ * cross-host gate does not expect.
+ */
 export const CONFORMANCE_VECTOR_FILE_NAMES = [
   "request-signatures.json",
   "protocol-negotiation.json",
@@ -56,7 +65,6 @@ export const CONFORMANCE_VECTOR_FILE_NAMES = [
   "attachments.json",
   "sse-events.json",
   "device-requests.json",
-  "conversation-ui.json",
 ] as const;
 
 const FIXTURE_REGISTRY_FILE_NAME = "dispatched-schema-fixtures.json";

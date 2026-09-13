@@ -178,21 +178,92 @@ export const isHostApiCompatible = (
   return Number.isFinite(minimum) && Number.isFinite(maximum) && minimum >= 0 && maximum <= 0;
 };
 
+/**
+ * Wire error code to HTTP status. Codes absent from this map are caller errors
+ * and answer 400, the contract's default for malformed input.
+ */
+const ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
+  HOST_INCOMPATIBLE: 503,
+  AUTHENTICATION_REQUIRED: 401,
+  AUTHENTICATION_FAILED: 401,
+  REFRESH_REUSED: 401,
+  SESSION_EXPIRED: 401,
+  SESSION_REVOKED: 401,
+  SIGNATURE_INVALID: 401,
+  NON_CANONICAL_TARGET: 401,
+  REQUEST_REPLAYED: 401,
+  CLOCK_SKEWED: 401,
+  ACCOUNT_NOT_FOUND: 404,
+  PROTOCOL_INCOMPATIBLE: 406,
+  IDEMPOTENCY_CONFLICT: 409,
+  CURSOR_CONFLICT: 409,
+  CURSOR_EXPIRED: 410,
+  REQUEST_BODY_TOO_LARGE: 413,
+  RATE_LIMITED: 429,
+});
+
 const errorStatus = (response: GatewayResponse): number => {
-  if (response.error?.code === "HOST_INCOMPATIBLE") return 503;
-  if (response.error?.code === "AUTHENTICATION_REQUIRED") return 401;
-  if (response.error?.code === "REQUEST_BODY_TOO_LARGE") return 413;
+  const code = response.error?.code;
+  if (code !== undefined && ERROR_STATUS[code] !== undefined) return ERROR_STATUS[code]!;
   if (response.error !== undefined) return 400;
   return 200;
+};
+
+/**
+ * Endpoints contract §4/§5 run *before* authentication. They carry no verified
+ * identity, so they never reach the verifier and never receive one.
+ */
+const PRE_AUTH_PATHS: ReadonlySet<string> = new Set([
+  "/open-android-intelligence/v2/negotiate",
+  "/open-android-intelligence/v2/sessions/password",
+  "/open-android-intelligence/v2/sessions/refresh",
+  "/open-android-intelligence/v2/sessions/current",
+]);
+
+const isPreAuthRequest = (method: GatewayHttpMethod, target: string): boolean => {
+  const path = target.split("?")[0] ?? target;
+  if (!PRE_AUTH_PATHS.has(path)) return false;
+  return path === "/open-android-intelligence/v2/sessions/current" ? method === "DELETE" : method === "POST";
+};
+
+const flattenedHeaders = (
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+): Readonly<Record<string, string>> => {
+  const flattened: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const single = headerValue(value);
+    if (single !== undefined) flattened[name.toLowerCase()] = single;
+  }
+  return Object.freeze(flattened);
+};
+
+/** Parses a pre-auth JSON body; anything unparseable is a caller error. */
+const decodePreAuthBody = (
+  body: Uint8Array,
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+): unknown => {
+  if (body.byteLength === 0) return undefined;
+  const contentType = String(headerValue(headers["content-type"]) ?? "").split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") return body;
+  try {
+    return JSON.parse(Buffer.from(body).toString("utf8")) as unknown;
+  } catch {
+    throw new Error("SCHEMA_INVALID");
+  }
 };
 
 const responseIdentity = (request: GatewayRouteRequest): Readonly<{
   requestId: string;
   correlationId: string;
-}> => ({
-  requestId: request.verifiedRequest?.context.requestId ?? "open-android-intelligence-route",
-  correlationId: request.verifiedRequest?.context.correlationId ?? "open-android-intelligence-route",
-});
+}> => {
+  // A pre-auth request has no verified identity yet; naming one would claim an
+  // authentication that never happened.
+  const context = request.verifiedRequest?.context;
+  return {
+    requestId: context?.requestId ?? "open-android-intelligence-route",
+    correlationId: context?.correlationId ?? "open-android-intelligence-route",
+  };
+};
 
 const failureResponse = (
   request: GatewayRouteRequest,
@@ -346,7 +417,6 @@ const createRoute = (
   const handleRaw = async (request: IncomingMessage): Promise<GatewayHttpResponse> => {
     const emptyRequest: GatewayRouteRequest = {};
     if (!isHostApiCompatible(services.hostVersion, services.hostApi)) return incompatibleResponse(emptyRequest, services);
-    if (services.verifyRequest === undefined) return authenticationRequiredResponse(emptyRequest);
 
     const method = rawRequestMethod(request);
     const target = rawRequestTarget(request);
@@ -361,20 +431,38 @@ const createRoute = (
     }
 
     let verifiedRequest: VerifiedGatewayRequest | undefined;
-    try {
-      verifiedRequest = await services.verifyRequest({
-        request,
-        req: request,
+    if (isPreAuthRequest(method, target)) {
+      // No verifier is involved: these endpoints exist to establish the session
+      // the verifier will later require.
+      let preAuthBody: unknown;
+      try {
+        preAuthBody = decodePreAuthBody(body, request.headers);
+      } catch (error) {
+        return rawFailureResponse(emptyRequest, error instanceof Error ? error.message : "SCHEMA_INVALID");
+      }
+      verifiedRequest = Object.freeze({
         method,
         target,
-        headers: Object.freeze({ ...request.headers }),
-        rawHeaders: Object.freeze([...request.rawHeaders]),
-        body,
+        ...(preAuthBody === undefined ? {} : { body: preAuthBody }),
+        headers: flattenedHeaders(request.headers),
       });
-    } catch {
-      verifiedRequest = undefined;
+    } else {
+      if (services.verifyRequest === undefined) return authenticationRequiredResponse(emptyRequest);
+      try {
+        verifiedRequest = await services.verifyRequest({
+          request,
+          req: request,
+          method,
+          target,
+          headers: Object.freeze({ ...request.headers }),
+          rawHeaders: Object.freeze([...request.rawHeaders]),
+          body,
+        });
+      } catch {
+        verifiedRequest = undefined;
+      }
+      if (verifiedRequest === undefined) return authenticationRequiredResponse(emptyRequest);
     }
-    if (verifiedRequest === undefined) return authenticationRequiredResponse(emptyRequest);
 
     const response = await services.core.handle(verifiedRequest);
     return Object.freeze({
@@ -409,6 +497,10 @@ const routeDefinitions: readonly Readonly<{
   match: "exact" | "prefix";
 }>[] = Object.freeze([
   Object.freeze({ path: "/open-android-intelligence/v2/negotiate", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/password", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/refresh", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/current", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/commands", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/events", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/conversations", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/conversations/", match: "prefix" }),

@@ -19,6 +19,7 @@ describe("OpenClaw Gateway backup and identity rotation", () => {
     const alice = await core.openGatewayAccount("acct_alice");
     const initialMasterKeyRef = alice.masterKeyRef;
 
+    alice.credentials.setPassword("backup password");
     const session = alice.sessions.createPasswordSession({
       username: "alice",
       password: "backup password",

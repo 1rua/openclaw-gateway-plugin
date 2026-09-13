@@ -39,7 +39,25 @@ const migrate = (database: DatabaseSync): void => {
       device_id TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL
+      expires_at TEXT NOT NULL,
+      access_token_hash TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS device_keys (
+      device_id TEXT PRIMARY KEY NOT NULL,
+      installation_id TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      pairing_generation INTEGER NOT NULL DEFAULT 1,
+      grant_revision INTEGER NOT NULL DEFAULT 1,
+      registered_at TEXT NOT NULL
+    );
+
+    -- Only a digest of the account password is stored, so the Gateway can never
+    -- read the password back and an account without one cannot be logged into.
+    CREATE TABLE IF NOT EXISTS account_credentials (
+      credential_id TEXT PRIMARY KEY NOT NULL,
+      password_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS idempotency_ledger (

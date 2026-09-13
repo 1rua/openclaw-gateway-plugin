@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createGatewayCore, openGatewayAccount } from "../src/core/gateway-core.js";
+import { createGatewayCore } from "../src/core/gateway-core.js";
 
 const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-isolation-"));
 const context = (overrides: Partial<{
@@ -27,20 +27,19 @@ const context = (overrides: Partial<{
 
 describe("OpenClaw Gateway account isolation", () => {
   it("opens different accounts under separate file roots before any shared database exists", async () => {
-    const originalCwd = process.cwd();
-    process.chdir(tempRoot());
-    const alice = await openGatewayAccount("acct_alice");
-    const bob = await openGatewayAccount("acct_bob");
+    // The host names the data directory; `test/storage-root.test.ts` pins that no
+    // directory is ever inferred from the shell's current directory.
+    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const alice = await core.openGatewayAccount("acct_alice");
+    const bob = await core.openGatewayAccount("acct_bob");
 
     try {
       expect(alice.paths.database).not.toBe(bob.paths.database);
       expect(alice.paths.attachments.startsWith(bob.paths.root)).toBe(false);
     } finally {
-      process.chdir(originalCwd);
+      alice.close();
+      bob.close();
     }
-
-    alice.close();
-    bob.close();
   });
 
   it("does not share SSE cursors or conversation attachment references across account databases", async () => {

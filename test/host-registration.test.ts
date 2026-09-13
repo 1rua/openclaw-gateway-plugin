@@ -38,11 +38,16 @@ const fakeCore = (seen: { request?: VerifiedGatewayRequest }): GatewayCore => Ob
   openGatewayAccount: async () => {
     throw new Error("not used by registration");
   },
+  accountExists: (): boolean => true,
+  deleteGatewayAccount: (): boolean => true,
   handle: async (request) => {
     seen.request = request;
+    // Pre-auth endpoints arrive without a verified context; a synthetic identity
+    // keeps this double usable for both shapes.
+    const identity = request.context ?? { requestId: "pre-auth", correlationId: "pre-auth" };
     return Object.freeze({
-      requestId: request.context.requestId,
-      correlationId: request.context.correlationId,
+      requestId: identity.requestId,
+      correlationId: identity.correlationId,
       protocol: "2.0" as const,
       data: Object.freeze({ accepted: true, target: request.target }),
     });
@@ -191,13 +196,25 @@ describe("OpenClaw Open Android Intelligence registration", () => {
     await expect(handler(rawRequest("/open-android-intelligence/v2/negotiate?mode=initial"), response)).resolves.toBe(true);
     expect(state.statusCode).toBe(200);
     expect(JSON.parse(state.body)).toMatchObject({ data: { accepted: true } });
+    // Contract §4: negotiation runs before authentication, so it never reaches
+    // the signature verifier and the core never sees a verified identity.
+    expect(verifierInputs).toHaveLength(0);
+    expect(seen.request?.target).toBe("/open-android-intelligence/v2/negotiate?mode=initial");
+    expect(seen.request?.context).toBeUndefined();
+    expect(seen.request?.body).toEqual({});
+
+    // An authenticated route still goes through the verifier exactly once.
+    const authenticated = rawResponse();
+    await expect(
+      handler(rawRequest("/open-android-intelligence/v2/conversations"), authenticated.response),
+    ).resolves.toBe(true);
+    expect(authenticated.state.statusCode).toBe(200);
     expect(verifierInputs).toHaveLength(1);
     expect(verifierInputs[0]).toMatchObject({
       method: "POST",
-      target: "/open-android-intelligence/v2/negotiate?mode=initial",
+      target: "/open-android-intelligence/v2/conversations",
     });
-    expect(Buffer.from(verifierInputs[0].body).toString("utf8")).toBe("{}");
-    expect(seen.request?.target).toBe("/open-android-intelligence/v2/negotiate?mode=initial");
+    expect(Buffer.from(verifierInputs[0]!.body).toString("utf8")).toBe("{}");
   });
 
   it("fails closed at the raw host boundary when no verifier is supplied", async () => {
@@ -206,11 +223,13 @@ describe("OpenClaw Open Android Intelligence registration", () => {
     const api = fakeOpenClawApi(fakeCore(seen));
 
     registerOpenAndroidIntelligenceGateway(api);
-    const negotiate = api.httpRoutes.find((route) => route.path === "/open-android-intelligence/v2/negotiate");
-    if (negotiate?.handler === undefined) throw new Error("registered negotiate handler missing");
+    const conversations = api.httpRoutes.find((route) => route.path === "/open-android-intelligence/v2/conversations");
+    if (conversations?.handler === undefined) throw new Error("registered conversations handler missing");
 
+    // A route that needs an authenticated identity must refuse to serve one:
+    // without a verifier there is no identity to serve it to.
     const { response, state } = rawResponse();
-    await expect(negotiate.handler(rawRequest("/open-android-intelligence/v2/negotiate"), response)).resolves.toBe(true);
+    await expect(conversations.handler(rawRequest("/open-android-intelligence/v2/conversations"), response)).resolves.toBe(true);
     expect(state.statusCode).toBe(401);
     expect(JSON.parse(state.body)).toMatchObject({ error: { code: "AUTHENTICATION_REQUIRED" } });
     expect(seen.request).toBeUndefined();

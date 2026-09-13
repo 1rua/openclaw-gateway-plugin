@@ -1,7 +1,8 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import type { GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";
+import { CredentialStore } from "./credential-store.js";
 
 export type LoginInstallation = Readonly<{
   installationId: string;
@@ -17,8 +18,40 @@ export type SessionBundle = Readonly<{
   expiresAt: string;
 }>;
 
+/**
+ * The verified-request facts behind one live access session.
+ *
+ * A host that implements Ed25519 request verification resolves the device public
+ * key and the pairing/grant revisions from here, so the key a request is checked
+ * against is always the key the login recorded.
+ */
+export type SessionFacts = Readonly<{
+  sessionId: string;
+  installationId: string;
+  devicePublicKey: string;
+  pairingGeneration: number;
+  grantRevision: number;
+}>;
+
+/**
+ * A host may replace how a password is checked; the default verifies the digest
+ * the local admin surface recorded for this account.
+ */
+export type CredentialVerifier = (input: Readonly<{
+  accountId: string;
+  username: string;
+  password: string;
+  installation: LoginInstallation;
+}>) => boolean;
+
 const digestSecret = (value: string): string =>
   createHash("sha256").update(value, "utf8").digest("hex");
+
+const sameDigest = (left: string, right: string): boolean => {
+  const a = Buffer.from(left, "utf8");
+  const b = Buffer.from(right, "utf8");
+  return a.byteLength === b.byteLength && timingSafeEqual(a, b);
+};
 
 const secret = (prefix: string): string => `${prefix}_${randomBytes(32).toString("base64url")}`;
 
@@ -29,6 +62,8 @@ export class SessionService {
     private readonly accountId: string,
     private readonly store: GatewayAccountStore,
     private readonly audit: AuditStore,
+    private readonly credentials: CredentialStore,
+    private readonly credentialVerifier?: CredentialVerifier,
   ) {}
 
   createPasswordSession(input: Readonly<{
@@ -38,11 +73,28 @@ export class SessionService {
     correlationId: string;
     now?: Date;
   }>): SessionBundle {
-    if (input.password.length === 0 || input.username.length === 0) {
+    // Contract §5.1: the username is a mutable login name and never the
+    // isolation key, so it is not compared with the account id here. What makes
+    // this account's login succeed is its recorded password digest.
+    if (typeof input.username !== "string" || input.username.trim().length === 0) {
       throw new Error("AUTHENTICATION_FAILED");
     }
+    if (!this.installationIsComplete(input.installation)) {
+      throw new Error("AUTHENTICATION_FAILED");
+    }
+    const verified = this.credentialVerifier !== undefined
+      ? this.credentialVerifier({
+          accountId: this.accountId,
+          username: input.username,
+          password: input.password,
+          installation: input.installation,
+        })
+      : this.credentials.verifyPassword(input.password);
+    if (verified !== true) throw new Error("AUTHENTICATION_FAILED");
+
     return this.store.transaction(() => {
       const bundle = this.issue(input.installation.installationId, `dev_${randomUUID()}`, input.now);
+      this.registerDeviceKey(bundle.deviceId, input.installation, input.now);
       this.audit.append({
         eventType: "session.password.created",
         actor: { accountId: this.accountId, deviceId: bundle.deviceId, installationId: input.installation.installationId },
@@ -92,6 +144,125 @@ export class SessionService {
     });
   }
 
+  /**
+   * Resolves one live access session to the facts a verifier needs.
+   *
+   * Returns undefined instead of throwing: the caller is an authentication seam
+   * that must fail closed without telling the requester which check failed.
+   */
+  resolveSession(
+    accessToken: string,
+    sessionId: string,
+    deviceId: string,
+    now = new Date(),
+  ): SessionFacts | undefined {
+    const row = this.store.database
+      .prepare(`
+        SELECT s.session_id AS session_id, s.installation_id AS installation_id,
+               s.status AS status, s.expires_at AS expires_at,
+               s.access_token_hash AS access_token_hash,
+               k.public_key AS public_key,
+               k.pairing_generation AS pairing_generation,
+               k.grant_revision AS grant_revision
+        FROM access_sessions s
+        LEFT JOIN device_keys k ON k.device_id = s.device_id
+        WHERE s.session_id = ? AND s.device_id = ?
+      `)
+      .get(sessionId, deviceId) as Record<string, unknown> | undefined;
+    if (row === undefined || String(row.status) !== "active") return undefined;
+    if (Date.parse(String(row.expires_at)) <= now.getTime()) return undefined;
+
+    const storedHash = row.access_token_hash;
+    if (typeof storedHash !== "string" || !sameDigest(storedHash, digestSecret(accessToken))) {
+      return undefined;
+    }
+    const publicKey = row.public_key;
+    if (typeof publicKey !== "string" || publicKey.length === 0) return undefined;
+    return Object.freeze({
+      sessionId: String(row.session_id),
+      installationId: String(row.installation_id),
+      devicePublicKey: publicKey,
+      pairingGeneration: Number(row.pairing_generation ?? 1),
+      grantRevision: Number(row.grant_revision ?? 1),
+    });
+  }
+
+  verifyAccessToken(
+    accessToken: string,
+    sessionId: string,
+    deviceId: string,
+    now = new Date(),
+  ): boolean {
+    return this.resolveSession(accessToken, sessionId, deviceId, now) !== undefined;
+  }
+
+  revokeSession(sessionId: string, correlationId: string, now = new Date()): void {
+    this.store.transaction(() => {
+      this.store.database
+        .prepare("UPDATE access_sessions SET status = 'revoked' WHERE session_id = ?")
+        .run(sessionId);
+      this.audit.append({
+        eventType: "session.revoked",
+        actor: { accountId: this.accountId },
+        subject: { sessionId },
+        correlationId,
+        occurredAt: nowIso(now),
+      });
+    });
+  }
+
+  /**
+   * Ends the pairing: no refresh credential, and no key left to sign with.
+   */
+  revokeRefreshCredentials(deviceId: string, correlationId: string, now = new Date()): void {
+    this.store.transaction(() => {
+      this.store.database
+        .prepare("UPDATE refresh_credentials SET status = 'revoked' WHERE device_id = ? AND status = 'active'")
+        .run(deviceId);
+      this.store.database.prepare("DELETE FROM device_keys WHERE device_id = ?").run(deviceId);
+      this.audit.append({
+        eventType: "session.refresh.revoked",
+        actor: { accountId: this.accountId, deviceId },
+        subject: {},
+        correlationId,
+        occurredAt: nowIso(now),
+      });
+    });
+  }
+
+  activeRefreshCredentialCount(deviceId: string): number {
+    const row = this.store.database
+      .prepare("SELECT COUNT(*) AS count FROM refresh_credentials WHERE device_id = ? AND status = 'active'")
+      .get(deviceId) as { count: number };
+    return row.count;
+  }
+
+  private installationIsComplete(installation: LoginInstallation): boolean {
+    return typeof installation === "object" && installation !== null
+      && typeof installation.installationId === "string" && installation.installationId.length > 0
+      && typeof installation.devicePublicKey === "string" && installation.devicePublicKey.length > 0;
+  }
+
+  private registerDeviceKey(
+    deviceId: string,
+    installation: LoginInstallation,
+    now?: Date,
+  ): void {
+    // The key is what makes a later request signature checkable, so it is
+    // written in the same transaction that issues the session: a session whose
+    // key was never recorded cannot be used.
+    this.store.database
+      .prepare(`
+        INSERT INTO device_keys(device_id, installation_id, public_key, pairing_generation, grant_revision, registered_at)
+        VALUES (?, ?, ?, 1, 1, ?)
+        ON CONFLICT(device_id) DO UPDATE SET
+          installation_id = excluded.installation_id,
+          public_key = excluded.public_key,
+          registered_at = excluded.registered_at
+      `)
+      .run(deviceId, installation.installationId, installation.devicePublicKey, nowIso(now));
+  }
+
   private recordRefreshReuse(input: Readonly<{
     installationId: string;
     deviceId: string;
@@ -112,13 +283,6 @@ export class SessionService {
     throw new Error("REFRESH_REUSED");
   }
 
-  activeRefreshCredentialCount(deviceId: string): number {
-    const row = this.store.database
-      .prepare("SELECT COUNT(*) AS count FROM refresh_credentials WHERE device_id = ? AND status = 'active'")
-      .get(deviceId) as { count: number };
-    return row.count;
-  }
-
   private issue(installationId: string, deviceId: string, now = new Date()): SessionBundle {
     const sessionId = `sess_${randomUUID()}`;
     const accessToken = secret("access");
@@ -131,6 +295,11 @@ export class SessionService {
         VALUES (?, ?, ?, 'active', ?, ?)
       `)
       .run(sessionId, installationId, deviceId, createdAt, expiresAt);
+    // The token itself is never stored: only its digest, so a database read
+    // cannot produce a usable credential.
+    this.store.database
+      .prepare("UPDATE access_sessions SET access_token_hash = ? WHERE session_id = ?")
+      .run(digestSecret(accessToken), sessionId);
     this.store.database
       .prepare(`
         INSERT INTO refresh_credentials(

@@ -36,7 +36,13 @@ describe("OpenClaw Gateway shared vector consumption", () => {
           name !== "dispatched-schema-fixtures.json",
       ),
     );
-    expect(discovered).toEqual(new Set(CONFORMANCE_VECTOR_FILE_NAMES));
+    // Contract section 16 enumerates exactly six shared vector documents with a
+    // closed `schemaName` set; the conversation-UI document is a local suite.
+    const contractFiles = new Set<string>(CONFORMANCE_VECTOR_FILE_NAMES);
+    for (const fileName of contractFiles) expect(discovered.has(fileName)).toBe(true);
+    expect([...discovered].filter((name) => !contractFiles.has(name))).toEqual([
+      "conversation-ui.json",
+    ]);
 
     const expectedCases = CONFORMANCE_VECTOR_FILE_NAMES.flatMap(
       (fileName) => readVectorFile(fileName).cases,

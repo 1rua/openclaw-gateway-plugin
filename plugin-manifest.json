@@ -3,7 +3,7 @@
   "backend": "openclaw",
   "upstream": { "release": "2026.7.1-2", "tag": "v2026.7.1-2", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "protocolVersion": "gateway-protocol-v2",
-  "capabilitySchemaHash": "gateway-protocol-v2",
+  "capabilitySchemaHash": "sha256:0a4bcac2ea38d59470dd3e7d73c864c3599126df36b0c31b594fb245bdaf21b5",
   "hostApi": { "min": "2026.7.1", "max": "2026.7.1", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
   "profiles": [
@@ -11,10 +11,31 @@
     { "kind": "tool", "id": "plugin", "authoritative": true },
     { "kind": "event", "id": "plugin-hook", "authoritative": true }
   ],
-  "zeroRetention": { "required": true, "profileId": "openclaw-zero-retention-v2", "providerObjectRetention": "none", "bodyEgress": "fail_closed" },
+  "capabilities": {
+    "negotiation": true,
+    "passwordLogin": true,
+    "refreshRotation": true,
+    "sessionLogout": true,
+    "commandCatalog": true,
+    "conversationRead": true,
+    "attachmentPolicy": true,
+    "sse": false,
+    "messageBatches": false,
+    "generationCancel": false,
+    "mirrorSync": false,
+    "invitationPairing": false,
+    "deviceKeySessions": false,
+    "encryptionAtRest": false
+  },
   "exposureModes": ["host-route", "loopback-reverse-proxy", "direct-tls"],
   "management": { "surface": "host-ui-and-local-cli", "localOnly": true, "remotePort": null, "sensitiveOperations": "local-confirmation" },
-  "securityBoundary": { "rawHeaders": "delegated-to-verified-request-seam", "ed25519": "not-implemented-in-task-4", "tls": "host-or-explicit-terminator" },
+  "securityBoundary": {
+    "rawHeaders": "delegated-to-verified-request-seam",
+    "ed25519": "host-supplied-verifier",
+    "transport": "host-or-explicit-terminator",
+    "encryptionAtRest": "not-implemented",
+    "zeroRetention": "not-implemented"
+  },
   "tools": [
     "mobile.notifications.query",
     "mobile.notifications.subscribe",

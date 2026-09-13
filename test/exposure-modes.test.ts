@@ -18,11 +18,16 @@ const fakeCore = (seen: { requests: VerifiedGatewayRequest[] }): GatewayCore => 
   openGatewayAccount: async () => {
     throw new Error("not used by exposure test");
   },
+  accountExists: (): boolean => true,
+  deleteGatewayAccount: (): boolean => true,
   handle: async (request) => {
     seen.requests.push(request);
+    // Pre-auth endpoints arrive without a verified context; this double keeps a
+    // single identity so the three exposure modes stay comparable.
+    const identity = request.context ?? { requestId: "request-a", correlationId: "correlation-a" };
     return Object.freeze({
-      requestId: request.context.requestId,
-      correlationId: request.context.correlationId,
+      requestId: identity.requestId,
+      correlationId: identity.correlationId,
       protocol: "2.0" as const,
       data: Object.freeze({ accepted: true, method: request.method, target: request.target }),
     });
@@ -125,6 +130,11 @@ const expectHostApiRejected = async (hostApi: HostApiCompatibility): Promise<voi
     hostApi,
     core: {
       openGatewayAccount: async () => {
+        adminWrites.count += 1;
+        throw new Error("incompatible host must remain read-only");
+      },
+      accountExists: (): boolean => true,
+      deleteGatewayAccount: (): boolean => {
         adminWrites.count += 1;
         throw new Error("incompatible host must remain read-only");
       },

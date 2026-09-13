@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { AttachmentStore } from "./attachment-store.js";
 import type { GatewayAccountStore } from "./account-store.js";
+import { DEFAULT_ATTACHMENT_POLICY, type AttachmentPolicy } from "./attachment-policy.js";
 import { AuditStore } from "./audit-store.js";
 
 export type ConversationRecord = Readonly<{
@@ -22,7 +23,31 @@ export class ConversationPort {
     private readonly store: GatewayAccountStore,
     private readonly attachments: AttachmentStore,
     private readonly audit: AuditStore,
+    private readonly policy: AttachmentPolicy = DEFAULT_ATTACHMENT_POLICY,
   ) {}
+
+  list(): ConversationRecord[] {
+    const rows = this.store.database
+      .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations ORDER BY conversation_id")
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapConversation(row));
+  }
+
+  get(conversationId: string): ConversationRecord {
+    const row = this.store.database
+      .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations WHERE conversation_id = ?")
+      .get(conversationId) as Record<string, unknown> | undefined;
+    if (row === undefined) throw new Error("SCHEMA_INVALID");
+    return this.mapConversation(row);
+  }
+
+  private mapConversation(row: Record<string, unknown>): ConversationRecord {
+    return Object.freeze({
+      conversationId: String(row.conversation_id),
+      clientConversationId: String(row.client_conversation_id),
+      title: typeof row.title === "string" ? row.title : null,
+    });
+  }
 
   create(input: Readonly<{
     clientConversationId: string;
@@ -66,8 +91,14 @@ export class ConversationPort {
         .prepare("SELECT conversation_id FROM conversations WHERE conversation_id = ?")
         .get(input.conversationId);
       if (conversation === undefined) throw new Error("SCHEMA_INVALID");
+      let totalAttachmentBytes = 0;
       for (const attachmentId of input.attachmentIds) {
-        this.attachments.requireVerifiedForMessage(attachmentId);
+        const attachment = this.attachments.get(attachmentId);
+        if (attachment.state !== "verified") throw new Error("ATTACHMENT_EXPIRED");
+        totalAttachmentBytes += attachment.sizeBytes;
+      }
+      if (totalAttachmentBytes > this.policy.maxMessageAttachmentBytes) {
+        throw new Error("ATTACHMENT_LIMIT_EXCEEDED");
       }
 
       const messageId = `msg_${randomUUID()}`;

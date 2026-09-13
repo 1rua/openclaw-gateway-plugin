@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { nextAttachmentState, type AttachmentState } from "../../../../gateway-contract/src/state-machines.js";
 import type { AccountPaths } from "./account-paths.js";
 import type { GatewayAccountStore } from "./account-store.js";
+import { DEFAULT_ATTACHMENT_POLICY, type AttachmentPolicy } from "./attachment-policy.js";
 import { AuditStore } from "./audit-store.js";
 
 const stageRecoverableStates: readonly AttachmentState[] = [
@@ -34,8 +35,13 @@ export class AttachmentStore {
     private readonly paths: AccountPaths,
     private readonly store: GatewayAccountStore,
     private readonly audit: AuditStore,
+    private readonly policy: AttachmentPolicy = DEFAULT_ATTACHMENT_POLICY,
   ) {
     this.reconcileStagedFiles();
+  }
+
+  get attachmentPolicy(): AttachmentPolicy {
+    return this.policy;
   }
 
   create(input: Readonly<{
@@ -48,9 +54,22 @@ export class AttachmentStore {
     now?: Date;
     expiresAt?: string;
   }>): AttachmentRecord {
+    // The advertised limits are the enforced limits: a record that could never
+    // be delivered must not be created in the first place.
+    if (
+      !Number.isSafeInteger(input.sizeBytes)
+      || input.sizeBytes < 0
+      || input.sizeBytes > this.policy.maxSingleAttachmentBytes
+      || !this.policy.allowedMediaTypes.includes(input.mediaType)
+    ) {
+      throw new Error("ATTACHMENT_LIMIT_EXCEEDED");
+    }
     const attachmentId = `att_${randomUUID()}`;
     const now = input.now ?? new Date();
-    const expiresAt = input.expiresAt ?? new Date(now.getTime() + 3_600_000).toISOString();
+    // A caller inside the host may pass an explicit expiry (the TTL sweep is
+    // tested that way); the wire boundary is where a client-supplied expiry is
+    // bounded by the negotiated TTL.
+    const expiresAt = input.expiresAt ?? new Date(now.getTime() + this.policy.attachmentTtlSeconds * 1000).toISOString();
     this.store.database
       .prepare(`
         INSERT INTO attachments(

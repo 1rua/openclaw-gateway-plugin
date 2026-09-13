@@ -8,6 +8,8 @@ import {
 export type CreateAccountInput = Readonly<{
   accountId: string;
   displayName?: string;
+  /** Required: it is what makes the account usable for password login. */
+  password?: string;
   localConfirmation?: boolean;
 }>;
 
@@ -71,12 +73,39 @@ export class AdminService {
     if (this.readOnly) return failure("account.create", true, "HOST_INCOMPATIBLE");
     if (input.localConfirmation !== true) return failure("account.create", false, "LOCAL_CONFIRMATION_REQUIRED");
     if (!validAccountId(input.accountId)) return failure("account.create", false, "SCHEMA_INVALID");
+    // Contract §5.2: the phone presents the password once and only its digest is
+    // kept, so an account created without one could never be logged into.
+    if (typeof input.password !== "string" || input.password.length === 0) {
+      return failure("account.create", false, "PASSWORD_REQUIRED");
+    }
     try {
       const account = await this.core.openGatewayAccount(input.accountId);
-      account.close();
+      try {
+        account.credentials.setPassword(input.password);
+      } finally {
+        account.close();
+      }
       return success("account.create", false, { accountId: input.accountId });
     } catch (error) {
       return failure("account.create", false, errorCode(error));
+    }
+  }
+
+  /** Resource-level deletion of one logical Gateway (contract §13). */
+  async deleteAccount(input: Readonly<{
+    accountId: string;
+    localConfirmation?: boolean;
+  }>): Promise<AdminResult> {
+    if (this.readOnly) return failure("account.delete", true, "HOST_INCOMPATIBLE");
+    if (input.localConfirmation !== true) return failure("account.delete", false, "LOCAL_CONFIRMATION_REQUIRED");
+    if (!validAccountId(input.accountId)) return failure("account.delete", false, "SCHEMA_INVALID");
+    try {
+      if (!this.core.deleteGatewayAccount(input.accountId)) {
+        return failure("account.delete", false, "ACCOUNT_NOT_FOUND");
+      }
+      return success("account.delete", false, { accountId: input.accountId, deleted: true });
+    } catch (error) {
+      return failure("account.delete", false, errorCode(error));
     }
   }
 
@@ -91,11 +120,24 @@ export class AdminService {
   }
 
   async execute(command: AdminCommand): Promise<AdminResult> {
-    if (command.command === "account.create") return this.createAccount(command.input);
-    if (command.command === "admin.status") return this.status();
-    if (this.readOnly) return failure(command.command, true, "HOST_INCOMPATIBLE");
-    if (command.localConfirmation !== true) return failure(command.command, false, "LOCAL_CONFIRMATION_REQUIRED");
-    return failure(command.command, false, "ADMIN_OPERATION_NOT_IMPLEMENTED");
+    switch (command.command) {
+      case "account.create":
+        return this.createAccount(command.input);
+      case "account.delete":
+        return this.deleteAccount(command);
+      case "admin.status":
+        return this.status();
+      default: {
+        // A command this build does not know still has to pass the read-only and
+        // local-confirmation gates rather than being silently accepted.
+        const unknown = command as unknown as { command: string; localConfirmation?: boolean };
+        if (this.readOnly) return failure(unknown.command, true, "HOST_INCOMPATIBLE");
+        if (unknown.localConfirmation !== true) {
+          return failure(unknown.command, false, "LOCAL_CONFIRMATION_REQUIRED");
+        }
+        return failure(unknown.command, false, "ADMIN_OPERATION_NOT_IMPLEMENTED");
+      }
+    }
   }
 }
 
@@ -112,6 +154,7 @@ export type AdminPanel = Readonly<{
   remotePort: null;
   readOnly: boolean;
   createAccount: (input: CreateAccountInput) => Promise<AdminResult>;
+  deleteAccount: (input: Readonly<{ accountId: string; localConfirmation?: boolean }>) => Promise<AdminResult>;
   status: () => Promise<AdminResult>;
   execute: (command: AdminCommand) => Promise<AdminResult>;
 }>;
@@ -122,6 +165,7 @@ export const createAdminPanel = (service: AdminService): AdminPanel => Object.fr
   remotePort: null,
   readOnly: service.readOnly,
   createAccount: (input) => service.createAccount(input),
+  deleteAccount: (input) => service.deleteAccount(input),
   status: () => service.status(),
   execute: (command) => service.execute(command),
 });
