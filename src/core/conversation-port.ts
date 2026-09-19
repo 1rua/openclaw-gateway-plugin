@@ -129,4 +129,41 @@ export class ConversationPort {
       return accepted;
     });
   }
+
+  /**
+   * The single writer of a conversation title.
+   *
+   * Only a conversation that exists can be renamed, and the rename is audited in
+   * the same transaction as the row update so a reader can never see a title the
+   * audit trail does not know about. The response shape mirrors the Hermes host's
+   * `update_title` result field for field.
+   */
+  updateTitle(input: Readonly<{
+    conversationId: string;
+    title: string;
+    correlationId: string;
+    now?: Date;
+  }>): ConversationRecord {
+    return this.store.transaction(() => {
+      const row = this.store.database
+        .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations WHERE conversation_id = ?")
+        .get(input.conversationId) as Record<string, unknown> | undefined;
+      if (row === undefined) throw new Error("SCHEMA_INVALID");
+      this.store.database
+        .prepare("UPDATE conversations SET title = ? WHERE conversation_id = ?")
+        .run(input.title, input.conversationId);
+      this.audit.append({
+        eventType: "conversation.title.updated",
+        actor: { accountId: this.accountId },
+        subject: { conversationId: input.conversationId, title: input.title },
+        correlationId: input.correlationId,
+        occurredAt: (input.now ?? new Date()).toISOString(),
+      });
+      return Object.freeze({
+        conversationId: input.conversationId,
+        clientConversationId: String(row.client_conversation_id),
+        title: input.title,
+      });
+    });
+  }
 }

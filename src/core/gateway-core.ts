@@ -618,10 +618,35 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               return success(request, { conversations: account.conversations.list() });
             }
             const conversationGet = request.method === "GET"
-              ? request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)$/)
+              ? request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)$/)
               : undefined;
             if (conversationGet?.[1] !== undefined) {
               return success(request, { conversation: account.conversations.get(conversationGet[1]) });
+            }
+            // Conversation rename (contract section 7). The body is the closed
+            // `{"title": string}` shape the phone sends and the Hermes host
+            // accepts; a missing or non-object body is a schema failure, never an
+            // empty rename.
+            const conversationPatch = request.method === "PATCH"
+              ? request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)$/)
+              : undefined;
+            if (conversationPatch?.[1] !== undefined) {
+              const body = bodyRecord(request.body);
+              const title = typeof body["title"] === "string" ? body["title"] : "";
+              const conversationId = conversationPatch[1]!;
+              const updated = account.conversations.updateTitle({
+                conversationId,
+                title,
+                correlationId: request.context!.correlationId,
+                now: request.now,
+              });
+              account.events.append({
+                eventType: "conversation.title.updated",
+                correlationId: request.context!.correlationId,
+                payload: { conversationId, title, newTitle: title },
+                now: request.now,
+              });
+              return success(request, { conversation: updated });
             }
             if (request.method === "POST" && request.target === "/open-android-intelligence/v2/conversations") {
               assertSchema("conversation.create", request.body);

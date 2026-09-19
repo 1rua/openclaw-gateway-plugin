@@ -29,7 +29,7 @@ const nextRequestId = (): string => `req_${(requestSequence += 1)}`;
 const rawRequest = (
   url: string,
   body = "{}",
-  method: "GET" | "POST" | "PUT" | "DELETE" = "POST",
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" = "POST",
   requestId = nextRequestId(),
 ): IncomingMessage => Object.assign(
   Readable.from(body.length === 0 ? [] : [Buffer.from(body, "utf8")]),
@@ -41,9 +41,9 @@ const rawRequest = (
       "content-length": String(Buffer.byteLength(body, "utf8")),
       authorization: "Bearer redacted-test-token",
       "x-open-android-intelligence-request-id": requestId,
-      ...(method === "POST" || method === "PUT" || method === "DELETE"
-        ? { "idempotency-key": requestId }
-        : {}),
+      ...(method === "GET"
+        ? {}
+        : { "idempotency-key": requestId }),
     },
     rawHeaders: ["content-type", "application/json"],
   },
@@ -70,7 +70,7 @@ const call = async (
   exposure: GatewayExposure,
   path: string,
   body: unknown,
-  method: "GET" | "POST" | "PUT" | "DELETE" = "POST",
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" = "POST",
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> => {
   const route = exposure.routes.find((candidate) => candidate.path === path || path.startsWith(candidate.path));
   if (route === undefined) throw new Error(`route missing: ${path}`);
@@ -80,7 +80,7 @@ const call = async (
 };
 
 const authenticatedVerifier = (input: {
-  method: "GET" | "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   target: string;
   headers: Readonly<Record<string, string | string[] | undefined>>;
   body: Uint8Array;
@@ -279,6 +279,53 @@ describe("OpenClaw Gateway capabilities", () => {
     });
     expect(message.statusCode).toBe(200);
     expect((message.body["data"] as Record<string, unknown>)["message"]).toMatchObject({ status: "accepted" });
+  });
+
+  it("renames a conversation through a signed PATCH and records the title event", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const exposure = exposureFor({ core });
+
+    const created = await call(exposure, "/open-android-intelligence/v2/conversations", {
+      clientConversationId: "cconv_rename",
+      title: "新对话",
+    });
+    expect(created.statusCode).toBe(200);
+    const conversationId = ((created.body["data"] as Record<string, unknown>)["conversation"] as Record<string, unknown>)["conversationId"] as string;
+
+    // The rename the Android workbench sends: PATCH with a closed {title} body.
+    const renamed = await call(
+      exposure,
+      `/open-android-intelligence/v2/conversations/${conversationId}`,
+      { title: "量子计算导论" },
+      "PATCH",
+    );
+    expect(renamed.statusCode).toBe(200);
+    expect((renamed.body["data"] as Record<string, unknown>)["conversation"]).toMatchObject({
+      conversationId,
+      title: "量子计算导论",
+    });
+
+    const unknown = await call(
+      exposure,
+      "/open-android-intelligence/v2/conversations/conv_missing",
+      { title: "无主标题" },
+      "PATCH",
+    );
+    expect(unknown.statusCode).toBe(400);
+    expect(unknown.body["error"]).toMatchObject({ code: "SCHEMA_INVALID" });
+
+    const account = await core.openGatewayAccount(ACCOUNT_ID);
+    try {
+      expect(account.conversations.get(conversationId).title).toBe("量子计算导论");
+      expect(account.conversations.list().map((record) => record.title)).toEqual(["量子计算导论"]);
+      const titleEvents = account.events
+        .readAfter(null)
+        .filter((event) => event.eventType === "conversation.title.updated");
+      expect(titleEvents).toHaveLength(1);
+      expect(titleEvents[0]?.payload).toMatchObject({ conversationId, newTitle: "量子计算导论" });
+    } finally {
+      account.close();
+    }
   });
 
   it("declares capabilities and security boundaries honestly", async () => {

@@ -15,7 +15,7 @@ export const OPENCLAW_HOST_API = Object.freeze({
 
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
 
-export type GatewayHttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+export type GatewayHttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
 export type HostApiCompatibility = Readonly<{
   minVersion: string;
@@ -291,7 +291,15 @@ const toVerifiedRequest = (
 ): VerifiedGatewayRequest | undefined => {
   if (request.verifiedRequest !== undefined) return request.verifiedRequest;
   if (request.context === undefined) return undefined;
-  if (request.method !== "GET" && request.method !== "POST" && request.method !== "PUT" && request.method !== "DELETE") {
+  // `PATCH` is the conversation title update (contract section 7); every other
+  // verb stays out of the verified-request seam.
+  if (
+    request.method !== "GET"
+    && request.method !== "POST"
+    && request.method !== "PUT"
+    && request.method !== "DELETE"
+    && request.method !== "PATCH"
+  ) {
     return undefined;
   }
   return Object.freeze({
@@ -351,7 +359,13 @@ const rawRequestTarget = (request: IncomingMessage): string | undefined => {
 };
 
 const rawRequestMethod = (request: IncomingMessage): GatewayHttpMethod | undefined => {
-  if (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "DELETE") {
+  if (
+    request.method === "GET"
+    || request.method === "POST"
+    || request.method === "PUT"
+    || request.method === "DELETE"
+    || request.method === "PATCH"
+  ) {
     return request.method;
   }
   return undefined;
