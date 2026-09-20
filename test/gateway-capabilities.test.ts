@@ -130,7 +130,7 @@ const negotiationBody = (overrides: Record<string, unknown> = {}) => ({
     attachments: ["staged-sha256-v1"],
     events: ["sse-cursor-v1"],
     deviceRequests: ["risk-queue-v1"],
-    conversationUi: ["agent-command-catalog-v1", "message-batches-v1"],
+    conversationUi: ["agent-command-catalog-v1", "agent-command-new-v1", "message-batches-v1"],
   },
   schemaHashes: { core: coreSchemaHash() },
   ...overrides,
@@ -157,6 +157,10 @@ describe("OpenClaw Gateway capabilities", () => {
     expect(features["auth"]).toEqual(["password", "refresh"]);
     expect(features["messages"]).toBe("chat-v1");
     expect(JSON.stringify(features)).not.toContain("message-batches-v1");
+    // The phone offers `/new` creation on every connection; a host without that
+    // command entry must refuse it outright so the UI can say so, rather than
+    // letting the phone mint a conversation the Gateway has never agreed to.
+    expect(JSON.stringify(features)).not.toContain("agent-command-new-v1");
     expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1"]);
     expect(data["limits"]).toMatchObject({
       maxSingleAttachmentBytes: DEFAULT_ATTACHMENT_POLICY.maxSingleAttachmentBytes,

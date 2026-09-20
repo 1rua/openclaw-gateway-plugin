@@ -103,6 +103,11 @@ export const GATEWAY_PROTOCOL_VERSION = Object.freeze({ major: 2, minor: 0 });
  * and the conversation-surface ladder in `conversationUi`.
  */
 export const SUPPORTED_AUTH = Object.freeze(["password", "refresh"]);
+// `agent-command-new-v1` (contract §7.1) is deliberately absent: this host has
+// no `/new` command entry that would atomically create a conversation and answer
+// with the authoritative id, so agreeing to it would promise the phone a service
+// that does not exist. The phone reads the absence and tells the user instead of
+// building a conversation only it knows about.
 export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1"]);
 export const REQUIRED_FEATURES = Object.freeze({
   messages: "chat-v1",
