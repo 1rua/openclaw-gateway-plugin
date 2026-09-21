@@ -130,7 +130,7 @@ const negotiationBody = (overrides: Record<string, unknown> = {}) => ({
     attachments: ["staged-sha256-v1"],
     events: ["sse-cursor-v1"],
     deviceRequests: ["risk-queue-v1"],
-    conversationUi: ["agent-command-catalog-v1", "agent-command-new-v1", "message-batches-v1"],
+    conversationUi: ["agent-command-catalog-v1", "agent-command-new-v1", "agent-approval-cards-v1", "message-batches-v1"],
   },
   schemaHashes: { core: coreSchemaHash() },
   ...overrides,
@@ -161,6 +161,11 @@ describe("OpenClaw Gateway capabilities", () => {
     // command entry must refuse it outright so the UI can say so, rather than
     // letting the phone mint a conversation the Gateway has never agreed to.
     expect(JSON.stringify(features)).not.toContain("agent-command-new-v1");
+    // The phone offers interactive approval cards on every connection; a host
+    // that cannot deliver them over a live channel must refuse the capability
+    // outright so the UI says "this Gateway has no approval cards" instead of
+    // painting a card whose decision could never be submitted.
+    expect(JSON.stringify(features)).not.toContain("agent-approval-cards-v1");
     expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1"]);
     expect(data["limits"]).toMatchObject({
       maxSingleAttachmentBytes: DEFAULT_ATTACHMENT_POLICY.maxSingleAttachmentBytes,
@@ -356,6 +361,10 @@ describe("OpenClaw Gateway capabilities", () => {
       [manifest.capabilities.conversationRead, "/open-android-intelligence/v2/conversations"],
       [manifest.capabilities.attachmentPolicy, "/open-android-intelligence/v2/attachments"],
     ];
+    // Approval cards need a live delivery channel this host does not have, so
+    // the capability is declared unavailable and no decision route exists.
+    expect(manifest.capabilities.approvalCards).toBe(false);
+    expect(paths.has("/open-android-intelligence/v2/approvals/")).toBe(false);
     for (const [claimed, path] of claimedRoutes) {
       if (claimed) expect(paths.has(path), `claimed capability without a route: ${path}`).toBe(true);
     }

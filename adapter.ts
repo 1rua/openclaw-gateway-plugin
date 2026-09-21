@@ -74,6 +74,13 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     refreshRotation: true,
     sessionLogout: true,
     commandCatalog: true,
+    /**
+     * Contract §7.2 interactive approval cards. This host has no live push
+     * channel, so it can neither deliver a card nor take its decision in time;
+     * the phone must say approval cards are unavailable here instead of showing
+     * buttons that cannot be submitted.
+     */
+    approvalCards: false,
     conversationRead: true,
     attachmentPolicy: true,
     /** Contract §9 server-sent events: this build answers `GET /events` with JSON. */

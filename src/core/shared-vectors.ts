@@ -70,7 +70,7 @@ export const CONFORMANCE_VECTOR_FILE_NAMES = [
 const FIXTURE_REGISTRY_FILE_NAME = "dispatched-schema-fixtures.json";
 const FIXTURE_META_SCHEMA_FILE_NAME = "dispatched-schema-fixtures-1.0.0.schema.json";
 const SHARED_BINDING_SET_ID = "gateway-core-fixtures-v1";
-const EXPECTED_CATALOG_ENTRY_COUNT = 5;
+const EXPECTED_CATALOG_ENTRY_COUNT = 7;
 
 export type ConformanceVectorOperation =
   | "request.target"

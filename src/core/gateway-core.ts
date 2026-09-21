@@ -108,6 +108,10 @@ export const SUPPORTED_AUTH = Object.freeze(["password", "refresh"]);
 // with the authoritative id, so agreeing to it would promise the phone a service
 // that does not exist. The phone reads the absence and tells the user instead of
 // building a conversation only it knows about.
+// `agent-approval-cards-v1` (contract §7.2) is deliberately absent for the same
+// reason: this host has no live SSE/WebSocket channel, so it could never push an
+// approval card to the phone nor receive its decision in time. Agreeing to it
+// would paint a card whose buttons can do nothing.
 export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1"]);
 export const REQUIRED_FEATURES = Object.freeze({
   messages: "chat-v1",
