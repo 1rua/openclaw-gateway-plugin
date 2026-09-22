@@ -188,6 +188,11 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   migrate(database);
   ensureMetadata(database, "master_key_ref", `host-secret:${paths.root.split("/").at(-1) ?? "account"}`);
   ensureMetadata(database, "gateway_identity_ref", "spki_initial");
+  // Contract §12: every re-pair, key rotation or recovery produces a *higher*
+  // pairing generation. The counter has to outlive the `device_keys` row it
+  // seeds, because 解除配对 deletes that row (§13) — keeping it only there
+  // would let the next login silently restart the generation at 1.
+  ensureMetadata(database, "pairing_generation", "1");
   return Object.freeze({
     database,
     transaction: <T>(work: () => T, hooks?: TransactionHooks): T => {

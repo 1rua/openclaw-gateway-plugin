@@ -73,6 +73,12 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     passwordLogin: true,
     refreshRotation: true,
     sessionLogout: true,
+    /**
+     * Contract §5.6 `DELETE /pairings/current` (D1). Declared only because all
+     * three preconditions exist: the `session.unpair` Schema definition, the
+     * two shared `auth-sessions.json` vectors, and the registered route.
+     */
+    unpair: true,
     commandCatalog: true,
     /**
      * Contract §7.2 interactive approval cards. This host has no live push

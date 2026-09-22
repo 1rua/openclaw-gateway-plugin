@@ -13,10 +13,31 @@ export type CreateAccountInput = Readonly<{
   localConfirmation?: boolean;
 }>;
 
+/**
+ * One device pairing, the level *below* an account.
+ *
+ * `account.delete` removes the whole logical Gateway; `pairing.revoke` removes
+ * one device's pairing from it (contract §13 解除配对). They are siblings, not
+ * a hierarchy: the same flat shape and the same read-only gate, and — like
+ * `account.delete` — a local confirmation this surface requires and the wire
+ * endpoint must never accept.
+ */
+export type RevokePairingInput = Readonly<{
+  accountId: string;
+  deviceId: string;
+  /**
+   * Required on this local surface only. The wire endpoint never uses it: a
+   * client could forge it, and the confirmation the user actually gives is the
+   * local UI dialog (D1).
+   */
+  localConfirmation?: boolean;
+}>;
+
 export type AdminCommand =
   | Readonly<{ command: "account.create"; input: CreateAccountInput }>
   | Readonly<{ command: "admin.status" }>
-  | Readonly<{ command: "account.delete"; accountId: string; localConfirmation?: boolean }>;
+  | Readonly<{ command: "account.delete"; accountId: string; localConfirmation?: boolean }>
+  | Readonly<{ command: "pairing.revoke"; accountId: string; deviceId: string; localConfirmation?: boolean }>;
 
 export type AdminResult = Readonly<{
   ok: boolean;
@@ -52,6 +73,9 @@ const success = (operation: string, readOnly: boolean, data: Readonly<Record<str
 
 const validAccountId = (accountId: unknown): accountId is string =>
   typeof accountId === "string" && /^[A-Za-z0-9._~-]{1,128}$/.test(accountId);
+
+const validDeviceId = (deviceId: unknown): deviceId is string =>
+  typeof deviceId === "string" && /^[A-Za-z0-9._~-]{1,128}$/.test(deviceId);
 
 const errorCode = (error: unknown): string => error instanceof Error ? error.message : "INTERNAL_ERROR";
 
@@ -109,6 +133,46 @@ export class AdminService {
     }
   }
 
+  /**
+   * 解除配对 for one device (contract §13, D1): device key, refresh credential,
+   * grants, queue, unconfirmed attachments and every access session of that
+   * device, plus a `pairingGeneration` bump.
+   *
+   * This is the local management twin of `DELETE /pairings/current` — the same
+   * account-scoped service, reached without a session because the operator is
+   * already on the host.
+   */
+  async revokePairing(input: RevokePairingInput): Promise<AdminResult> {
+    if (this.readOnly) return failure("pairing.revoke", true, "HOST_INCOMPATIBLE");
+    if (input.localConfirmation !== true) return failure("pairing.revoke", false, "LOCAL_CONFIRMATION_REQUIRED");
+    if (!validAccountId(input.accountId)) return failure("pairing.revoke", false, "SCHEMA_INVALID");
+    if (!validDeviceId(input.deviceId)) return failure("pairing.revoke", false, "SCHEMA_INVALID");
+    try {
+      // Unlike the wire route, this surface must not create a Gateway as a side
+      // effect of asking for one, so a missing account is named instead.
+      if (!this.core.accountExists(input.accountId)) {
+        return failure("pairing.revoke", false, "ACCOUNT_NOT_FOUND");
+      }
+      const account = await this.core.openGatewayAccount(input.accountId);
+      try {
+        if (!account.pairings.hasActivePairing(input.deviceId)) {
+          return failure("pairing.revoke", false, "PAIRING_REQUIRED");
+        }
+        const outcome = account.pairings.revoke({
+          deviceId: input.deviceId,
+          correlationId: `admin:pairing.revoke:${input.accountId}`,
+        });
+        // The same seven fields the wire endpoint answers with, and nothing
+        // else: the generation it moved to is in the audit trail.
+        return success("pairing.revoke", false, outcome.receipt);
+      } finally {
+        account.close();
+      }
+    } catch (error) {
+      return failure("pairing.revoke", false, errorCode(error));
+    }
+  }
+
   async status(): Promise<AdminResult> {
     return success("admin.status", this.readOnly, {
       hostVersion: this.hostVersion ?? null,
@@ -125,6 +189,8 @@ export class AdminService {
         return this.createAccount(command.input);
       case "account.delete":
         return this.deleteAccount(command);
+      case "pairing.revoke":
+        return this.revokePairing(command);
       case "admin.status":
         return this.status();
       default: {
@@ -155,6 +221,7 @@ export type AdminPanel = Readonly<{
   readOnly: boolean;
   createAccount: (input: CreateAccountInput) => Promise<AdminResult>;
   deleteAccount: (input: Readonly<{ accountId: string; localConfirmation?: boolean }>) => Promise<AdminResult>;
+  revokePairing: (input: RevokePairingInput) => Promise<AdminResult>;
   status: () => Promise<AdminResult>;
   execute: (command: AdminCommand) => Promise<AdminResult>;
 }>;
@@ -166,6 +233,7 @@ export const createAdminPanel = (service: AdminService): AdminPanel => Object.fr
   readOnly: service.readOnly,
   createAccount: (input) => service.createAccount(input),
   deleteAccount: (input) => service.deleteAccount(input),
+  revokePairing: (input) => service.revokePairing(input),
   status: () => service.status(),
   execute: (command) => service.execute(command),
 });

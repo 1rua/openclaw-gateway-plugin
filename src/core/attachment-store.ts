@@ -18,6 +18,17 @@ const stageRecoverableStates: readonly AttachmentState[] = [
 
 const cleanupStates: readonly AttachmentState[] = ["acknowledged", "failed", "expired"];
 
+/**
+ * The predicate §13 "未确认附件" selects.
+ *
+ * A host that acknowledged an attachment confirmed it; anything that is not
+ * acknowledged and not already the bodyless terminal `deleted` record may still
+ * hold staged device content, so 解除配对 removes it with its bytes. The same
+ * predicate is used to *measure* the post-condition, which is why it is spelled
+ * once here: the reported flag can never disagree with what was swept.
+ */
+const UNCONFIRMED_PREDICATE = "acknowledged_at IS NULL AND state != 'deleted'";
+
 export type AttachmentRecord = Readonly<{
   attachmentId: string;
   state: AttachmentState;
@@ -229,6 +240,58 @@ export class AttachmentStore {
       },
     });
     return deletedFiles;
+  }
+
+  countUnconfirmed(): number {
+    const row = this.store.database
+      .prepare(`SELECT COUNT(*) AS count FROM attachments WHERE ${UNCONFIRMED_PREDICATE}`)
+      .get() as { count: number };
+    return row.count;
+  }
+
+  /**
+   * 解除配对: removes every unconfirmed attachment with its staged bytes.
+   *
+   * §13 makes this a resource-level transaction, not a per-attachment state
+   * jump, so the rows themselves go — the bytes are already gone and the
+   * contract removes the metadata with them (`:635`). The bytes are unlinked on
+   * commit: removing them inside the transaction would leave a durable row
+   * pointing at a file that no longer exists if the surrounding work rolls back.
+   *
+   * Known limitation, stated rather than papered over: `attachments` carries no
+   * device column in this schema, so the sweep is account-wide. Until a device
+   * attribution column exists, an unpair also destroys another device's
+   * in-flight bytes.
+   */
+  revokeUnconfirmed(input: Readonly<{ correlationId: string; now?: Date }>): number {
+    const now = input.now ?? new Date();
+    const pathsToDelete = new Set<string>();
+    return this.store.transaction(() => {
+      const rows = this.store.database
+        .prepare(`SELECT * FROM attachments WHERE ${UNCONFIRMED_PREDICATE}`)
+        .all() as Record<string, unknown>[];
+      for (const row of rows) {
+        const contentPath = this.optionalContentPath(row);
+        if (contentPath !== null) pathsToDelete.add(contentPath);
+        this.store.database
+          .prepare("DELETE FROM attachments WHERE attachment_id = ?")
+          .run(String(row.attachment_id));
+      }
+      if (rows.length > 0) {
+        this.audit.append({
+          eventType: "attachment.revoked",
+          actor: { accountId: this.accountId },
+          subject: { scope: "unpair", revoked: rows.length },
+          correlationId: input.correlationId,
+          occurredAt: now.toISOString(),
+        });
+      }
+      return rows.length;
+    }, {
+      onCommit: () => {
+        for (const path of pathsToDelete) this.removeIfPresentSafely(path);
+      },
+    });
   }
 
   get(attachmentId: string): AttachmentRecord {

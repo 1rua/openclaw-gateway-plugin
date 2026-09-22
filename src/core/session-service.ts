@@ -34,6 +34,19 @@ export type SessionFacts = Readonly<{
 }>;
 
 /**
+ * The lifecycle state of one access session row, read without the access token.
+ *
+ * The unpair endpoint needs it: it is the only way this host can tell an
+ * already-revoked session from an expired one, which the contract reports as
+ * two different wire codes.
+ */
+export type SessionState =
+  | Readonly<{ kind: "active" }>
+  | Readonly<{ kind: "expired" }>
+  | Readonly<{ kind: "revoked" }>
+  | Readonly<{ kind: "unknown" }>;
+
+/**
  * A host may replace how a password is checked; the default verifies the digest
  * the local admin surface recorded for this account.
  */
@@ -212,14 +225,20 @@ export class SessionService {
   }
 
   /**
-   * Ends the pairing: no refresh credential, and no key left to sign with.
+   * Ends the *login*: the device can no longer mint a new access token from its
+   * refresh credential.
+   *
+   * This is contract §13 "退出登录" and deliberately stops short of the pairing:
+   * the device key survives so the phone can still prove who it is and sign a
+   * fresh login without re-pairing. Removing the key is 解除配对, which is a
+   * separate resource-level transaction served by `DELETE /pairings/current`
+   * (D1) and never implied by a session delete (§5.5).
    */
   revokeRefreshCredentials(deviceId: string, correlationId: string, now = new Date()): void {
     this.store.transaction(() => {
       this.store.database
         .prepare("UPDATE refresh_credentials SET status = 'revoked' WHERE device_id = ? AND status = 'active'")
         .run(deviceId);
-      this.store.database.prepare("DELETE FROM device_keys WHERE device_id = ?").run(deviceId);
       this.audit.append({
         eventType: "session.refresh.revoked",
         actor: { accountId: this.accountId, deviceId },
@@ -237,6 +256,57 @@ export class SessionService {
     return row.count;
   }
 
+  activeSessionCount(deviceId: string): number {
+    const row = this.store.database
+      .prepare("SELECT COUNT(*) AS count FROM access_sessions WHERE device_id = ? AND status = 'active'")
+      .get(deviceId) as { count: number };
+    return row.count;
+  }
+
+  /**
+   * Ends every access session of one device, not just the caller's.
+   *
+   * 解除配对 has to cut a device off completely: contract §13 lists the five
+   * resource classes and D1 adds "every access session of the device", so a
+   * second session the phone still holds cannot stay usable.
+   */
+  revokeDeviceSessions(deviceId: string, correlationId: string, now = new Date()): number {
+    return this.store.transaction(() => {
+      const revoked = this.store.database
+        .prepare("UPDATE access_sessions SET status = 'revoked' WHERE device_id = ? AND status = 'active'")
+        .run(deviceId) as { changes: number };
+      this.audit.append({
+        eventType: "session.revoked",
+        actor: { accountId: this.accountId, deviceId },
+        subject: { scope: "device", revoked: revoked.changes },
+        correlationId,
+        occurredAt: nowIso(now),
+      });
+      return revoked.changes;
+    });
+  }
+
+  describeSession(sessionId: string, deviceId: string, now = new Date()): SessionState {
+    const row = this.store.database
+      .prepare("SELECT status AS status, expires_at AS expires_at FROM access_sessions WHERE session_id = ? AND device_id = ?")
+      .get(sessionId, deviceId) as Record<string, unknown> | undefined;
+    if (row === undefined) return Object.freeze({ kind: "unknown" as const });
+    if (String(row.status) !== "active") return Object.freeze({ kind: "revoked" as const });
+    if (Date.parse(String(row.expires_at)) <= now.getTime()) {
+      return Object.freeze({ kind: "expired" as const });
+    }
+    return Object.freeze({ kind: "active" as const });
+  }
+
+  /** The pairing generation the next device key of this account will carry. */
+  currentPairingGeneration(): number {
+    const row = this.store.database
+      .prepare("SELECT value FROM account_metadata WHERE key = 'pairing_generation'")
+      .get() as { value: string } | undefined;
+    const parsed = Number(row?.value ?? 1);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
+  }
+
   private installationIsComplete(installation: LoginInstallation): boolean {
     return typeof installation === "object" && installation !== null
       && typeof installation.installationId === "string" && installation.installationId.length > 0
@@ -250,17 +320,25 @@ export class SessionService {
   ): void {
     // The key is what makes a later request signature checkable, so it is
     // written in the same transaction that issues the session: a session whose
-    // key was never recorded cannot be used.
+    // key was never recorded cannot be used. The generation comes from the
+    // account counter, so a re-pair after 解除配对 starts *above* the
+    // generation the pairing was revoked at (contract §12) instead of at 1.
     this.store.database
       .prepare(`
         INSERT INTO device_keys(device_id, installation_id, public_key, pairing_generation, grant_revision, registered_at)
-        VALUES (?, ?, ?, 1, 1, ?)
+        VALUES (?, ?, ?, ?, 1, ?)
         ON CONFLICT(device_id) DO UPDATE SET
           installation_id = excluded.installation_id,
           public_key = excluded.public_key,
           registered_at = excluded.registered_at
       `)
-      .run(deviceId, installation.installationId, installation.devicePublicKey, nowIso(now));
+      .run(
+        deviceId,
+        installation.installationId,
+        installation.devicePublicKey,
+        this.currentPairingGeneration(),
+        nowIso(now),
+      );
   }
 
   private recordRefreshReuse(input: Readonly<{

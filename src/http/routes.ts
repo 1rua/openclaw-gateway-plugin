@@ -212,6 +212,15 @@ const errorStatus = (response: GatewayResponse): number => {
 /**
  * Endpoints contract §4/§5 run *before* authentication. They carry no verified
  * identity, so they never reach the verifier and never receive one.
+ *
+ * `DELETE /sessions/current` is also the one route whose request signature is
+ * waived (Wave 0 ruling D4): `Timestamp`, `Nonce`, `Signature`, `Request-Id`
+ * and `Idempotency-Key` are exempt, `Authorization` plus the five identity
+ * headers are kept. The waiver is this per-route entry and nothing else — it is
+ * never generalised by method or by path prefix. `DELETE /pairings/current` is
+ * deliberately absent: destroying a pairing needs the full nine-header
+ * signature, so it stays behind the verifier like every other authenticated
+ * route.
  */
 const PRE_AUTH_PATHS: ReadonlySet<string> = new Set([
   "/open-android-intelligence/v2/negotiate",
@@ -514,6 +523,10 @@ const routeDefinitions: readonly Readonly<{
   Object.freeze({ path: "/open-android-intelligence/v2/sessions/password", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/sessions/refresh", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/sessions/current", match: "exact" }),
+  // 解除配对 (contract §5.6, D1). Authenticated like every other /v2 route: it
+  // is not in `PRE_AUTH_PATHS`, so it reaches the host verifier's full §6.1
+  // nine-header signature check instead of the logout route's waiver.
+  Object.freeze({ path: "/open-android-intelligence/v2/pairings/current", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/commands", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/events", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/conversations", match: "exact" }),

@@ -14,6 +14,7 @@ import { ConversationPort } from "./conversation-port.js";
 import { CredentialStore } from "./credential-store.js";
 import { DeviceRequestStore } from "./device-request-store.js";
 import { EventStore } from "./event-store.js";
+import { PairingService } from "./pairing-service.js";
 import { SessionService } from "./session-service.js";
 import {
   runSharedVectors,
@@ -32,6 +33,7 @@ export type GatewayAccount = Readonly<{
   deviceRequests: DeviceRequestStore;
   events: EventStore;
   sessions: SessionService;
+  pairings: PairingService;
   credentials: CredentialStore;
   close: () => void;
 }>;
@@ -228,6 +230,15 @@ const warnRefusedNegotiation = (reason: string, body: unknown): void => {
 };
 
 /**
+ * The canonical path of `DELETE /pairings/current` (Wave 0 ruling D1).
+ *
+ * It carries no path parameter on purpose: the device being unpaired is taken
+ * from the verified context only, so a body or path segment can never retarget
+ * the revocation at another device (contract §6.1 `IDENTITY_OVERRIDE_REJECTED`).
+ */
+export const UNPAIR_TARGET = "/open-android-intelligence/v2/pairings/current";
+
+/**
  * Wire codes that are reported to the client as-is.
  *
  * Anything else is an internal failure and must not leak as a plausible
@@ -249,11 +260,28 @@ const protocolErrorCodes = new Set([
   "ATTACHMENT_EXPIRED",
   "CURSOR_CONFLICT",
   "CURSOR_EXPIRED",
+  // The `DELETE /pairings/current` closure (D1). `PAIRING_REQUIRED` and the two
+  // session codes are produced here; `ACCOUNT_DELETING`, `RATE_LIMITED` and
+  // `HOST_INCOMPATIBLE` are *propagated* rather than generated: this host has no
+  // account-deletion state machine and no rate limiter, so a verifier or host
+  // layer that raises them is reported with the contract code instead of being
+  // flattened into `INTERNAL_ERROR`.
+  "PAIRING_REQUIRED",
+  "SESSION_EXPIRED",
+  "SESSION_REVOKED",
+  "ACCOUNT_DELETING",
+  "RATE_LIMITED",
+  "HOST_INCOMPATIBLE",
 ]);
 
 /** The subset an idempotent write may record as its durable outcome. */
 const persistableErrorCodes = new Set([
   "SCHEMA_INVALID",
+  // D1: a refusal to unpair is a fact about the pairing, not a transient
+  // failure, so the refusal is the terminal outcome of that request id. Without
+  // it, a replay of an old request id that arrived *after* the device re-paired
+  // would destroy the fresh pairing instead of repeating the refusal.
+  "PAIRING_REQUIRED",
   "IDENTITY_OVERRIDE_REJECTED",
   "PAIRING_GENERATION_STALE",
   "GRANT_STALE",
@@ -357,6 +385,47 @@ const runIdempotent = (
   });
 };
 
+/**
+ * 解除配对 for the one device the verified context names (contract §5.6, D1).
+ *
+ * Signature strength is the deliberate opposite of `DELETE /sessions/current`:
+ * that route is waived (D4) because a device that lost its key must still be
+ * able to end its own session, while this one *destroys* the pairing and
+ * therefore runs only behind the host verifier's full §6.1 nine-header
+ * signature and behind `runIdempotent`, which is what binds `Idempotency-Key`
+ * to the signed request id. The waiver is a per-route whitelist and is never
+ * generalised to this path.
+ *
+ * Each precondition throws instead of returning a failure so a refused unpair
+ * leaves no idempotency ledger entry: nothing was revoked, so the client may
+ * retry with the same key after re-pairing.
+ */
+const unpairCurrent = (
+  request: VerifiedGatewayRequest,
+  account: GatewayAccount,
+): GatewayResponse => {
+  const context = request.context!;
+  // The endpoint takes no body; a body here can only be an attempt to smuggle
+  // identity or parameters into a resource-level deletion.
+  if (request.body !== undefined) throw new Error("SCHEMA_INVALID");
+  // The pairing is asked about first: after a completed unpair the session is
+  // gone *because* the pairing is gone, and "you have no pairing" is the answer
+  // the phone needs in order to re-pair rather than to re-login.
+  if (!account.pairings.hasActivePairing(context.deviceId)) throw new Error("PAIRING_REQUIRED");
+  const session = account.sessions.describeSession(context.sessionId, context.deviceId, request.now);
+  if (session.kind === "expired") throw new Error("SESSION_EXPIRED");
+  if (session.kind === "revoked") throw new Error("SESSION_REVOKED");
+  if (session.kind === "unknown") throw new Error("AUTHENTICATION_FAILED");
+  const outcome = account.pairings.revoke({
+    deviceId: context.deviceId,
+    correlationId: context.correlationId,
+    now: request.now,
+  });
+  const data: Readonly<Record<string, unknown>> = outcome.receipt;
+  assertSchema("session.unpair", data);
+  return success(request, data);
+};
+
 const buildAccount = (
   root: string,
   accountId: string,
@@ -368,6 +437,8 @@ const buildAccount = (
   const events = new EventStore(store, policy.eventRetentionSeconds);
   const attachments = new AttachmentStore(accountId, paths, store, audit, policy);
   const credentials = new CredentialStore(store);
+  const sessions = new SessionService(accountId, store, audit, credentials);
+  const deviceRequests = new DeviceRequestStore(accountId, store, audit, events);
   const masterKeyRef = (store.database
     .prepare("SELECT value FROM account_metadata WHERE key = 'master_key_ref'")
     .get() as { value: string }).value;
@@ -379,9 +450,10 @@ const buildAccount = (
     audit,
     attachments,
     conversations: new ConversationPort(accountId, store, attachments, audit, policy),
-    deviceRequests: new DeviceRequestStore(accountId, store, audit, events),
+    deviceRequests,
     events,
-    sessions: new SessionService(accountId, store, audit, credentials),
+    sessions,
+    pairings: new PairingService(accountId, store, audit, sessions, deviceRequests, attachments),
     credentials,
     close: store.close,
   });
@@ -659,6 +731,9 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 }
               : undefined;
           return runIdempotent(account, request, () => {
+            if (request.method === "DELETE" && request.target.split("?")[0] === UNPAIR_TARGET) {
+              return unpairCurrent(request, account);
+            }
             if (request.method === "GET" && request.target.split("?")[0] === "/open-android-intelligence/v2/commands") {
               const languageCode = new URL(`https://gateway.local${request.target}`)
                 .searchParams.get("languageCode") ?? "en";

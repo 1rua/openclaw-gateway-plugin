@@ -16,6 +16,7 @@
     "passwordLogin": true,
     "refreshRotation": true,
     "sessionLogout": true,
+    "unpair": true,
     "commandCatalog": true,
     "approvalCards": false,
     "conversationRead": true,

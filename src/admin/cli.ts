@@ -76,6 +76,17 @@ const parseCommand = (args: readonly string[], service: AdminService): AdminComm
       ...(flags.confirmed ? { localConfirmation: true } : {}),
     };
   }
+  if (first === "pairing" && second === "revoke" && third !== undefined && rest[0] !== undefined) {
+    const [deviceId, ...flagTokens] = rest;
+    const flags = parseFlags(flagTokens);
+    if (flags === undefined) return invalidArguments(service);
+    return {
+      command: "pairing.revoke",
+      accountId: third,
+      deviceId,
+      ...(flags.confirmed ? { localConfirmation: true } : {}),
+    };
+  }
   return invalidArguments(service);
 };
 
@@ -169,6 +180,22 @@ const registerAdminCommands = (context: OpenClawCliContext, service: AdminServic
       "account",
       "delete",
       String(accountId),
+      ...(confirmedOption(options) ? ["--confirm-local"] : []),
+    ]));
+
+  const pairing = root
+    .command("pairing")
+    .description("Manage Open Android Intelligence Gateway device pairings");
+
+  pairing
+    .command("revoke <accountId> <deviceId>")
+    .description("Revoke one device pairing and all of its sessions, grants and queued requests")
+    .option("--confirm-local", "Confirm this write on the local host")
+    .action((accountId, deviceId, options) => executeAdminCommand(service, [
+      "pairing",
+      "revoke",
+      String(accountId),
+      String(deviceId),
       ...(confirmedOption(options) ? ["--confirm-local"] : []),
     ]));
 };

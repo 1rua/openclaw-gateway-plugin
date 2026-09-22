@@ -254,6 +254,56 @@ export class DeviceRequestStore {
     });
   }
 
+  /**
+   * 解除配对: takes every live request of one device out of the queue (§13).
+   *
+   * Only the documented `cancel` transition is used, so a request the device had
+   * already claimed becomes `cancel_requested` rather than a fabricated outcome.
+   * What finishes the job is the caller's `pairingGeneration` bump: every row
+   * left behind is bound to a generation the device can no longer present, so it
+   * can never be claimed or answered (§12, `PAIRING_GENERATION_STALE`).
+   */
+  revokeForDevice(input: Readonly<{
+    deviceId: string;
+    correlationId: string;
+    now?: Date;
+  }>): number {
+    const now = input.now ?? new Date();
+    return this.store.transaction(() => {
+      const rows = this.store.database
+        .prepare(`
+          SELECT request_id AS request_id, state AS state FROM device_requests
+          WHERE device_id = ? AND state IN ('pending', 'claimed', 'cancel_requested')
+        `)
+        .all(input.deviceId) as Record<string, unknown>[];
+      for (const row of rows) {
+        const requestId = String(row.request_id);
+        const state = String(row.state) as DeviceRequestState;
+        this.store.database
+          .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
+          .run(nextDeviceRequestState(state, "cancel"), requestId);
+        this.events.append({
+          eventType: "device.request.cancel.requested",
+          correlationId: input.correlationId,
+          payload: { requestId },
+          now,
+        });
+      }
+      return rows.length;
+    });
+  }
+
+  /** Requests still answerable by the device: the queue §13 has to empty. */
+  countLiveForDevice(deviceId: string): number {
+    const row = this.store.database
+      .prepare(`
+        SELECT COUNT(*) AS count FROM device_requests
+        WHERE device_id = ? AND state IN ('pending', 'claimed', 'cancel_requested')
+      `)
+      .get(deviceId) as { count: number };
+    return row.count;
+  }
+
   recoverExpired(now = new Date()): number {
     let recovered = 0;
     const rows = this.store.database
