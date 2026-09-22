@@ -200,6 +200,24 @@ describe("OpenClaw Gateway capabilities", () => {
     }
   });
 
+  it("stays silent when it accepts a negotiation", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const exposure = exposureFor({ core });
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(" "));
+    });
+    try {
+      const accepted = await call(exposure, "/open-android-intelligence/v2/negotiate", negotiationBody());
+
+      // A noisy handshake would bury the signal the refusal line carries.
+      expect(accepted.statusCode).toBe(200);
+      expect(warnings.filter((line) => line.includes("Refused negotiation"))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("logs in only an account with a recorded digest, and only after a negotiation", async () => {
     const storageRoot = tempRoot();
     const core = createGatewayCore({ storageRoot });

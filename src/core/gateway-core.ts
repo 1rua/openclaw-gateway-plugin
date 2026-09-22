@@ -213,6 +213,10 @@ const warnRefusedNegotiation = (reason: string, body: unknown): void => {
   const request = asRecord(body);
   const client = asRecord(request["client"]);
   const hashes = asRecord(request["schemaHashes"]);
+  // Truncating is safe without a shape re-check: this runs after
+  // `negotiate.request` validation, which already pins the field to `sha256:`
+  // plus 64 lowercase hex digits. A missing value still has to be named, because
+  // "the client sent nothing" is exactly what an operator needs to see.
   const prefix = (value: unknown): string =>
     typeof value === "string" && value.length > 0 ? value.slice(0, 15) : "<missing>";
   console.warn(
@@ -414,12 +418,15 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     const auth = (requested["auth"] as readonly unknown[]).filter(
       (item): item is string => typeof item === "string" && SUPPORTED_AUTH.includes(item),
     );
-    for (const required of Object.values(REQUIRED_FEATURES)) {
-      const offered = Object.values(requested).flat().filter((item): item is string => typeof item === "string");
-      if (!offered.includes(required)) {
-        warnRefusedNegotiation(`client does not offer ${required}`, body);
-        throw new Error("PROTOCOL_INCOMPATIBLE");
-      }
+    // All missing capabilities are reported together, exactly as the Hermes host
+    // does: one refusal is one diagnostic event, not one line per missing name.
+    const offered = Object.values(requested).flat().filter((item): item is string => typeof item === "string");
+    const missing = Object.values(REQUIRED_FEATURES)
+      .filter((required) => !offered.includes(required))
+      .sort();
+    if (missing.length > 0) {
+      warnRefusedNegotiation(`client does not offer ${missing.join(", ")}`, body);
+      throw new Error("PROTOCOL_INCOMPATIBLE");
     }
     const conversationUi = Array.isArray(requested["conversationUi"])
       ? (requested["conversationUi"] as readonly unknown[]).filter(
