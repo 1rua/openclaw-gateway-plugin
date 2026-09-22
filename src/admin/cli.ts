@@ -87,6 +87,17 @@ const parseCommand = (args: readonly string[], service: AdminService): AdminComm
       ...(flags.confirmed ? { localConfirmation: true } : {}),
     };
   }
+  if (first === "grant" && second === "bump" && third !== undefined && rest[0] !== undefined) {
+    const [deviceId, ...flagTokens] = rest;
+    const flags = parseFlags(flagTokens);
+    if (flags === undefined) return invalidArguments(service);
+    return {
+      command: "grant.bump",
+      accountId: third,
+      deviceId,
+      ...(flags.confirmed ? { localConfirmation: true } : {}),
+    };
+  }
   return invalidArguments(service);
 };
 
@@ -194,6 +205,22 @@ const registerAdminCommands = (context: OpenClawCliContext, service: AdminServic
     .action((accountId, deviceId, options) => executeAdminCommand(service, [
       "pairing",
       "revoke",
+      String(accountId),
+      String(deviceId),
+      ...(confirmedOption(options) ? ["--confirm-local"] : []),
+    ]));
+
+  const grant = root
+    .command("grant")
+    .description("Manage Open Android Intelligence Gateway pairing grants");
+
+  grant
+    .command("bump <accountId> <deviceId>")
+    .description("Raise one pairing's grantRevision after the Android-local grant changed")
+    .option("--confirm-local", "Confirm this write on the local host")
+    .action((accountId, deviceId, options) => executeAdminCommand(service, [
+      "grant",
+      "bump",
       String(accountId),
       String(deviceId),
       ...(confirmedOption(options) ? ["--confirm-local"] : []),

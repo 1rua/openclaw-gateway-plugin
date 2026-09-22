@@ -11,6 +11,13 @@ export type GatewayAccountStore = Readonly<{
   database: DatabaseSync;
   transaction: <T>(work: () => T, hooks?: TransactionHooks) => T;
   close: () => void;
+  /**
+   * Test seam for the commit-uncertainty path: setting `value` makes the next
+   * `transaction` commit fail with `OUTCOME_UNKNOWN` — the code a caller gets
+   * when it cannot know whether its commit landed. Production code never
+   * touches this field.
+   */
+  readonly failNextCommit: { value: boolean };
 }>;
 
 const migrate = (database: DatabaseSync): void => {
@@ -193,8 +200,10 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   // seeds, because 解除配对 deletes that row (§13) — keeping it only there
   // would let the next login silently restart the generation at 1.
   ensureMetadata(database, "pairing_generation", "1");
+  const failNextCommit = { value: false };
   return Object.freeze({
     database,
+    failNextCommit,
     transaction: <T>(work: () => T, hooks?: TransactionHooks): T => {
       if (transactionDepth > 0) {
         addHooks(hooks);
@@ -206,6 +215,13 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
       addHooks(hooks);
       try {
         const result = work();
+        if (failNextCommit.value) {
+          failNextCommit.value = false;
+          // The outcome of this commit is unknowable, so every statement of
+          // the transaction is rolled back and the caller is told exactly
+          // that — never handed a success that may not have happened.
+          throw new Error("OUTCOME_UNKNOWN");
+        }
         database.exec("COMMIT");
         transactionDepth -= 1;
         const committedHooks = activeHooks.onCommit;

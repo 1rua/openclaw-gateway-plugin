@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import type { GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";
 import { CredentialStore } from "./credential-store.js";
+import type { EventStore } from "./event-store.js";
 
 export type LoginInstallation = Readonly<{
   installationId: string;
@@ -75,6 +76,7 @@ export class SessionService {
     private readonly accountId: string,
     private readonly store: GatewayAccountStore,
     private readonly audit: AuditStore,
+    private readonly events: EventStore,
     private readonly credentials: CredentialStore,
     private readonly credentialVerifier?: CredentialVerifier,
   ) {}
@@ -211,6 +213,14 @@ export class SessionService {
 
   revokeSession(sessionId: string, correlationId: string, now = new Date()): void {
     this.store.transaction(() => {
+      // The device id is read from the session row itself: the event payload
+      // carries the real pairing the session belonged to, never a caller's
+      // claim. A missing row means nothing was revoked, so the stream must not
+      // carry a fabricated revocation — the audit line keeps its pre-existing
+      // behavior either way.
+      const row = this.store.database
+        .prepare("SELECT device_id AS device_id FROM access_sessions WHERE session_id = ?")
+        .get(sessionId) as Record<string, unknown> | undefined;
       this.store.database
         .prepare("UPDATE access_sessions SET status = 'revoked' WHERE session_id = ?")
         .run(sessionId);
@@ -220,6 +230,13 @@ export class SessionService {
         subject: { sessionId },
         correlationId,
         occurredAt: nowIso(now),
+      });
+      if (row === undefined) return;
+      this.events.append({
+        eventType: "session.revoked",
+        correlationId,
+        payload: { sessionId, deviceId: String(row.device_id) },
+        now,
       });
     });
   }

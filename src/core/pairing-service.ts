@@ -2,6 +2,7 @@ import type { GatewayAccountStore } from "./account-store.js";
 import type { AttachmentStore } from "./attachment-store.js";
 import { AuditStore } from "./audit-store.js";
 import type { DeviceRequestStore } from "./device-request-store.js";
+import type { EventStore } from "./event-store.js";
 import type { SessionService } from "./session-service.js";
 
 /**
@@ -47,6 +48,7 @@ export class PairingService {
     private readonly accountId: string,
     private readonly store: GatewayAccountStore,
     private readonly audit: AuditStore,
+    private readonly events: EventStore,
     private readonly sessions: SessionService,
     private readonly deviceRequests: DeviceRequestStore,
     private readonly attachments: AttachmentStore,
@@ -57,6 +59,55 @@ export class PairingService {
       .prepare("SELECT 1 AS present FROM device_keys WHERE device_id = ?")
       .get(deviceId) as Record<string, unknown> | undefined;
     return row !== undefined;
+  }
+
+  /**
+   * Raises one pairing's `grantRevision` by one (contract §11).
+   *
+   * The revision is the monotone counter a device presents with every device
+   * request, so after the Android-local grant has changed the Gateway must move
+   * the device's revision before any request bound to the old one can still be
+   * claimed or answered (`GRANT_STALE`).
+   *
+   * One commit carries all three facts: the new revision on the device key
+   * row, the audit entry, and the `pairing.grant.changed` event on the stream.
+   * The event is a notification only — its payload is exactly
+   * `$defs/pairingGrantChangedPayload`, and this host has no signed-grant
+   * mechanism, so the optional `grantDigest` and the plugin-identity fields are
+   * omitted rather than invented.
+   */
+  bumpGrantRevision(input: Readonly<{
+    deviceId: string;
+    correlationId: string;
+    now?: Date;
+  }>): Readonly<{ deviceId: string; grantRevision: number }> {
+    const now = input.now ?? new Date();
+    return this.store.transaction(() => {
+      const key = this.store.database
+        .prepare("SELECT grant_revision AS grant_revision FROM device_keys WHERE device_id = ?")
+        .get(input.deviceId) as Record<string, unknown> | undefined;
+      // No key means there is no pairing whose grant could change: the request
+      // is refused rather than silently "succeeding" against nothing.
+      if (key === undefined) throw new Error("PAIRING_REQUIRED");
+      const nextRevision = Number(key.grant_revision ?? 1) + 1;
+      this.store.database
+        .prepare("UPDATE device_keys SET grant_revision = ? WHERE device_id = ?")
+        .run(nextRevision, input.deviceId);
+      this.events.append({
+        eventType: "pairing.grant.changed",
+        correlationId: input.correlationId,
+        payload: { grantRevision: nextRevision },
+        now,
+      });
+      this.audit.append({
+        eventType: "pairing.grant.changed",
+        actor: { accountId: this.accountId, deviceId: input.deviceId },
+        subject: { deviceId: input.deviceId, grantRevision: nextRevision },
+        correlationId: input.correlationId,
+        occurredAt: now.toISOString(),
+      });
+      return Object.freeze({ deviceId: input.deviceId, grantRevision: nextRevision });
+    });
   }
 
   revoke(input: Readonly<{

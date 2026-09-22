@@ -37,7 +37,8 @@ export type AdminCommand =
   | Readonly<{ command: "account.create"; input: CreateAccountInput }>
   | Readonly<{ command: "admin.status" }>
   | Readonly<{ command: "account.delete"; accountId: string; localConfirmation?: boolean }>
-  | Readonly<{ command: "pairing.revoke"; accountId: string; deviceId: string; localConfirmation?: boolean }>;
+  | Readonly<{ command: "pairing.revoke"; accountId: string; deviceId: string; localConfirmation?: boolean }>
+  | Readonly<{ command: "grant.bump"; accountId: string; deviceId: string; localConfirmation?: boolean }>;
 
 export type AdminResult = Readonly<{
   ok: boolean;
@@ -173,6 +174,47 @@ export class AdminService {
     }
   }
 
+  /**
+   * Raises one pairing's `grantRevision` by one (contract §11): the
+   * management-plane sibling of `pairing.revoke`. After the Android-local
+   * grant has changed, the Gateway moves the device's revision so any request
+   * still carrying the old one answers `GRANT_STALE`. The same
+   * `HOST_INCOMPATIBLE` gate and local-confirmation rule apply — a grant
+   * change is a device-local decision, and the Gateway only records the
+   * revision that confirmation produced.
+   */
+  async grantBump(input: Readonly<{
+    accountId: string;
+    deviceId: string;
+    localConfirmation?: boolean;
+  }>): Promise<AdminResult> {
+    if (this.readOnly) return failure("grant.bump", true, "HOST_INCOMPATIBLE");
+    if (input.localConfirmation !== true) return failure("grant.bump", false, "LOCAL_CONFIRMATION_REQUIRED");
+    if (!validAccountId(input.accountId)) return failure("grant.bump", false, "SCHEMA_INVALID");
+    if (!validDeviceId(input.deviceId)) return failure("grant.bump", false, "SCHEMA_INVALID");
+    try {
+      // Unlike the wire route, this surface must not create a Gateway as a side
+      // effect of asking for one, so a missing account is named instead.
+      if (!this.core.accountExists(input.accountId)) {
+        return failure("grant.bump", false, "ACCOUNT_NOT_FOUND");
+      }
+      const account = await this.core.openGatewayAccount(input.accountId);
+      try {
+        const outcome = account.pairings.bumpGrantRevision({
+          deviceId: input.deviceId,
+          correlationId: `admin:grant.bump:${input.accountId}`,
+        });
+        // The two fields the revision actually moved, and nothing else: the
+        // event and the audit entry carry the same revision.
+        return success("grant.bump", false, outcome);
+      } finally {
+        account.close();
+      }
+    } catch (error) {
+      return failure("grant.bump", false, errorCode(error));
+    }
+  }
+
   async status(): Promise<AdminResult> {
     return success("admin.status", this.readOnly, {
       hostVersion: this.hostVersion ?? null,
@@ -191,6 +233,8 @@ export class AdminService {
         return this.deleteAccount(command);
       case "pairing.revoke":
         return this.revokePairing(command);
+      case "grant.bump":
+        return this.grantBump(command);
       case "admin.status":
         return this.status();
       default: {
@@ -222,6 +266,7 @@ export type AdminPanel = Readonly<{
   createAccount: (input: CreateAccountInput) => Promise<AdminResult>;
   deleteAccount: (input: Readonly<{ accountId: string; localConfirmation?: boolean }>) => Promise<AdminResult>;
   revokePairing: (input: RevokePairingInput) => Promise<AdminResult>;
+  grantBump: (input: RevokePairingInput) => Promise<AdminResult>;
   status: () => Promise<AdminResult>;
   execute: (command: AdminCommand) => Promise<AdminResult>;
 }>;
@@ -234,6 +279,7 @@ export const createAdminPanel = (service: AdminService): AdminPanel => Object.fr
   createAccount: (input) => service.createAccount(input),
   deleteAccount: (input) => service.deleteAccount(input),
   revokePairing: (input) => service.revokePairing(input),
+  grantBump: (input) => service.grantBump(input),
   status: () => service.status(),
   execute: (command) => service.execute(command),
 });

@@ -437,7 +437,7 @@ const buildAccount = (
   const events = new EventStore(store, policy.eventRetentionSeconds);
   const attachments = new AttachmentStore(accountId, paths, store, audit, policy);
   const credentials = new CredentialStore(store);
-  const sessions = new SessionService(accountId, store, audit, credentials);
+  const sessions = new SessionService(accountId, store, audit, events, credentials);
   const deviceRequests = new DeviceRequestStore(accountId, store, audit, events);
   const masterKeyRef = (store.database
     .prepare("SELECT value FROM account_metadata WHERE key = 'master_key_ref'")
@@ -453,7 +453,7 @@ const buildAccount = (
     deviceRequests,
     events,
     sessions,
-    pairings: new PairingService(accountId, store, audit, sessions, deviceRequests, attachments),
+    pairings: new PairingService(accountId, store, audit, events, sessions, deviceRequests, attachments),
     credentials,
     close: store.close,
   });
