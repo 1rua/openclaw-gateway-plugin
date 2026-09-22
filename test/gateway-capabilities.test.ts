@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { coreSchemaHash } from "../../../gateway-contract/src/core-schema-hash.js";
 import { createAdminService } from "../src/admin/service.js";
@@ -172,6 +172,32 @@ describe("OpenClaw Gateway capabilities", () => {
       maxMessageAttachmentBytes: DEFAULT_ATTACHMENT_POLICY.maxMessageAttachmentBytes,
       attachmentTtlSeconds: DEFAULT_ATTACHMENT_POLICY.attachmentTtlSeconds,
     });
+  });
+
+  it("names the stale side in the host log when it refuses a negotiation", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const exposure = exposureFor({ core });
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(" "));
+    });
+    try {
+      const rejected = await call(exposure, "/open-android-intelligence/v2/negotiate", negotiationBody({
+        schemaHashes: { core: `sha256:${"b".repeat(64)}` },
+      }));
+
+      expect(rejected.statusCode).toBe(406);
+      const refused = warnings.filter((line) => line.includes("Refused negotiation"));
+      // Contract §4: nothing else records a refused negotiation, so this single
+      // line must name the client build and both digests on its own.
+      expect(refused).toHaveLength(1);
+      expect(refused[0]).toContain("installationId=install_1");
+      expect(refused[0]).toContain("appVersion=2.0.0");
+      expect(refused[0]).toContain(`clientCore=sha256:${"b".repeat(8)}`);
+      expect(refused[0]).toContain(`gatewayCore=${coreSchemaHash().slice(0, 15)}`);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("logs in only an account with a recorded digest, and only after a negotiation", async () => {

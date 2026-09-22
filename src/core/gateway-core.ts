@@ -195,6 +195,35 @@ const bodyRecord = (value: unknown): Readonly<Record<string, unknown>> => {
 };
 
 /**
+ * Names the client build and both core digests of one refused negotiation.
+ *
+ * A refused negotiation stops before authentication, so no session, audit row or
+ * event ever records it: this line is the only trace a version mismatch leaves
+ * for the operator, and it has to answer "which side is stale?" on its own.
+ * Contract §4 treats a digest mismatch as a destructive upgrade, so the failure
+ * must be diagnosable from the host log alone. Digests are public contract
+ * hashes, never secrets, and only prefixes are printed. It never throws: it runs
+ * on the failure path.
+ */
+const warnRefusedNegotiation = (reason: string, body: unknown): void => {
+  const asRecord = (value: unknown): Readonly<Record<string, unknown>> =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Readonly<Record<string, unknown>>)
+      : {};
+  const request = asRecord(body);
+  const client = asRecord(request["client"]);
+  const hashes = asRecord(request["schemaHashes"]);
+  const prefix = (value: unknown): string =>
+    typeof value === "string" && value.length > 0 ? value.slice(0, 15) : "<missing>";
+  console.warn(
+    `[open_android] Refused negotiation: ${reason}`
+    + ` (installationId=${String(client["installationId"] ?? "<missing>")}`
+    + ` appVersion=${String(client["appVersion"] ?? "<missing>")}`
+    + ` clientCore=${prefix(hashes["core"])} gatewayCore=${prefix(coreSchemaHash())})`,
+  );
+};
+
+/**
  * Wire codes that are reported to the client as-is.
  *
  * Anything else is an internal failure and must not leak as a plausible
@@ -378,6 +407,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     assertSchema("negotiate.request", body);
     const schemaHashes = bodyRecord(body["schemaHashes"]);
     if (String(schemaHashes["core"]) !== coreSchemaHash()) {
+      warnRefusedNegotiation("core Schema digest mismatch", body);
       throw new Error("PROTOCOL_INCOMPATIBLE");
     }
     const requested = bodyRecord(body["features"]);
@@ -386,7 +416,10 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     );
     for (const required of Object.values(REQUIRED_FEATURES)) {
       const offered = Object.values(requested).flat().filter((item): item is string => typeof item === "string");
-      if (!offered.includes(required)) throw new Error("PROTOCOL_INCOMPATIBLE");
+      if (!offered.includes(required)) {
+        warnRefusedNegotiation(`client does not offer ${required}`, body);
+        throw new Error("PROTOCOL_INCOMPATIBLE");
+      }
     }
     const conversationUi = Array.isArray(requested["conversationUi"])
       ? (requested["conversationUi"] as readonly unknown[]).filter(
@@ -432,6 +465,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
           .digest("hex");
         const existing = pendingNegotiations.get(negotiationId);
         if (existing !== undefined && existing.inputHash !== inputHash) {
+          warnRefusedNegotiation(`${negotiationId} was already started with a different body`, body);
           throw new Error("PROTOCOL_INCOMPATIBLE");
         }
         const installationId = String(bodyRecord(body["client"])["installationId"]);
