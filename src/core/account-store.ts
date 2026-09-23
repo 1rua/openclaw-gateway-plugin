@@ -108,6 +108,8 @@ const migrate = (database: DatabaseSync): void => {
       attachment_id TEXT PRIMARY KEY NOT NULL,
       client_attachment_id TEXT NOT NULL,
       client_attachment_key TEXT,
+      owner_device_id TEXT,
+      owner_pairing_generation INTEGER,
       filename TEXT NOT NULL,
       media_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
@@ -271,6 +273,24 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
 
   migrate(database);
   migrateAttachmentClientKeys(database);
+  ensureColumn(database, "attachments", "owner_device_id", "TEXT");
+  ensureColumn(database, "attachments", "owner_pairing_generation", "INTEGER");
+  ensureMetadata(database, "attachment_storage_format", "2");
+  const attachmentFormat = database.prepare("SELECT value FROM account_metadata WHERE key = 'attachment_storage_format'")
+    .get() as { value: string } | undefined;
+  if (attachmentFormat?.value !== "2") {
+    database.close();
+    throw new Error("ATTACHMENT_STORAGE_VERSION_UNSUPPORTED");
+  }
+  database.exec(`
+    CREATE TRIGGER IF NOT EXISTS attachments_require_pairing_identity
+    BEFORE INSERT ON attachments
+    WHEN (SELECT value FROM account_metadata WHERE key = 'attachment_storage_format') = '2'
+      AND (NEW.owner_device_id IS NULL OR NEW.owner_device_id = '' OR NEW.owner_pairing_generation IS NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'ATTACHMENT_PAIRING_BINDING_REQUIRED');
+    END;
+  `);
   ensureColumn(database, "attachments", "uploaded_size_bytes", "INTEGER");
   ensureColumn(database, "attachments", "uploaded_sha256", "TEXT");
   ensureColumn(database, "messages", "body", "TEXT NOT NULL DEFAULT ''");

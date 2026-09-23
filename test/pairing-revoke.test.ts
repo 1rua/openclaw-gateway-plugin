@@ -65,6 +65,8 @@ const pairedAccount = async (core: GatewayCore, accountId: string): Promise<Live
       mediaType: "text/plain",
       sizeBytes: 5,
       sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      deviceId: first.deviceId,
+      pairingGeneration: 1,
       correlationId: "cor_unpair_attachment",
     });
     await account.attachments.uploadContent(attachment.attachmentId, Buffer.from("hello", "utf8"));
@@ -126,6 +128,25 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   it("revokes the five §13 resource classes and every access session of the device", async () => {
     const core = createGatewayCore({ storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
+    const accountBeforeUnpair = await core.openGatewayAccount(session.accountId);
+    let otherDeviceAttachmentId: string;
+    try {
+      const otherDeviceAttachment = accountBeforeUnpair.attachments.create({
+        clientAttachmentId: "client_other_device_attachment",
+        filename: "other-device.txt",
+        mediaType: "text/plain",
+        sizeBytes: 5,
+        sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        deviceId: "device_other",
+        pairingGeneration: 1,
+        correlationId: "cor_other_device_attachment",
+      });
+      otherDeviceAttachmentId = otherDeviceAttachment.attachmentId;
+      await accountBeforeUnpair.attachments.uploadContent(otherDeviceAttachmentId, Buffer.from("hello", "utf8"));
+      accountBeforeUnpair.attachments.commit(otherDeviceAttachmentId);
+    } finally {
+      accountBeforeUnpair.close();
+    }
 
     const response = await unpair(core, session, "req_unpair_1");
     expect(response.error).toBeUndefined();
@@ -145,14 +166,16 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
       // §13 empties the queue: the documented `cancel` transition takes each
       // live request out of it, so nothing the device could still answer is left.
       { label: "liveDeviceRequests", sql: "SELECT COUNT(*) AS count FROM device_requests WHERE device_id = ? AND state IN ('pending','claimed','cancel_requested')", parameters: [session.deviceId] },
-      { label: "unconfirmedAttachments", sql: "SELECT COUNT(*) AS count FROM attachments WHERE acknowledged_at IS NULL AND state != 'deleted'", parameters: [] },
+      { label: "targetPairingAttachments", sql: "SELECT COUNT(*) AS count FROM attachments WHERE acknowledged_at IS NULL AND state != 'deleted' AND owner_device_id = ? AND owner_pairing_generation = ?", parameters: [session.deviceId, "1"] },
+      { label: "otherDeviceAttachments", sql: "SELECT COUNT(*) AS count FROM attachments WHERE acknowledged_at IS NULL AND state != 'deleted' AND owner_device_id = ? AND owner_pairing_generation = ?", parameters: ["device_other", "1"] },
       { label: "activeSessions", sql: "SELECT COUNT(*) AS count FROM access_sessions WHERE device_id = ? AND status = 'active'", parameters: [session.deviceId] },
     ]);
     expect(counts).toEqual({
       deviceKeys: 0,
       refresh: 0,
       liveDeviceRequests: 0,
-      unconfirmedAttachments: 0,
+      targetPairingAttachments: 0,
+      otherDeviceAttachments: 1,
       activeSessions: 0,
     });
 
@@ -163,7 +186,8 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
       const cancelled = account.events.readAfter(null)
         .filter((event) => event.eventType === "device.request.cancel.requested");
       expect(cancelled.map((event) => event.payload)).toEqual([{ requestId: "req_queued" }]);
-      expect(account.attachments.countUnconfirmed()).toBe(0);
+      expect(account.attachments.countUnconfirmed(session.deviceId, 1)).toBe(0);
+      expect(account.attachments.get(otherDeviceAttachmentId).hasStagedBytes).toBe(true);
     } finally {
       account.close();
     }

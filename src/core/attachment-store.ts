@@ -24,9 +24,10 @@ const stageRecoverableStates: readonly AttachmentState[] = [
 ];
 
 const cleanupStates: readonly AttachmentState[] = ["acknowledged", "failed", "expired"];
+const UNATTRIBUTED_INTERNAL_OWNER = "__gateway_internal_unattributed__";
 
 /**
- * The predicate §13 "未确认附件" selects.
+ * The predicate §13 "未确认附件" selects for the pairing being revoked.
  *
  * A host that acknowledged an attachment confirmed it; anything that is not
  * acknowledged and not already the bodyless terminal `deleted` record may still
@@ -71,11 +72,18 @@ export class AttachmentStore {
     mediaType: string;
     sizeBytes: number;
     sha256: string;
+    deviceId?: string;
+    pairingGeneration?: number;
     correlationId: string;
     now?: Date;
     expiresAt?: string;
   }>): AttachmentRecord {
     if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 0) throw new Error("SCHEMA_INVALID");
+    const ownerDeviceId = input.deviceId ?? UNATTRIBUTED_INTERNAL_OWNER;
+    const ownerPairingGeneration = input.pairingGeneration ?? 0;
+    if (ownerDeviceId.length === 0 || !Number.isSafeInteger(ownerPairingGeneration) || ownerPairingGeneration < 0) {
+      throw new Error("SCHEMA_INVALID");
+    }
     return this.store.transaction(() => {
       const existing = this.store.database
         .prepare("SELECT * FROM attachments WHERE client_attachment_key = ?")
@@ -86,6 +94,8 @@ export class AttachmentStore {
           || String(existing.media_type) !== input.mediaType
           || Number(existing.size_bytes) !== input.sizeBytes
           || String(existing.sha256) !== input.sha256
+          || String(existing.owner_device_id ?? "") !== ownerDeviceId
+          || Number(existing.owner_pairing_generation ?? -1) !== ownerPairingGeneration
         ) throw new Error("IDEMPOTENCY_CONFLICT");
         return this.mapRow(existing);
       }
@@ -98,15 +108,18 @@ export class AttachmentStore {
       this.store.database
         .prepare(`
           INSERT INTO attachments(
-            attachment_id, client_attachment_id, client_attachment_key, filename, media_type, size_bytes, sha256,
+            attachment_id, client_attachment_id, client_attachment_key, owner_device_id, owner_pairing_generation,
+            filename, media_type, size_bytes, sha256,
             state, content_path, created_at, expires_at, delivered_at, acknowledged_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'created', NULL, ?, ?, NULL, NULL)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', NULL, ?, ?, NULL, NULL)
         `)
         .run(
           attachmentId,
           input.clientAttachmentId,
           `client:${input.clientAttachmentId}`,
+          ownerDeviceId,
+          ownerPairingGeneration,
           input.filename,
           input.mediaType,
           input.sizeBytes,
@@ -343,15 +356,22 @@ export class AttachmentStore {
     return deletedFiles;
   }
 
-  countUnconfirmed(): number {
+  countUnconfirmed(deviceId?: string, pairingGeneration?: number): number {
+    if (deviceId === undefined && pairingGeneration === undefined) {
+      const row = this.store.database
+        .prepare(`SELECT COUNT(*) AS count FROM attachments WHERE ${UNCONFIRMED_PREDICATE}`)
+        .get() as { count: number };
+      return row.count;
+    }
+    if (deviceId === undefined || pairingGeneration === undefined) throw new Error("SCHEMA_INVALID");
     const row = this.store.database
-      .prepare(`SELECT COUNT(*) AS count FROM attachments WHERE ${UNCONFIRMED_PREDICATE}`)
-      .get() as { count: number };
+      .prepare(`SELECT COUNT(*) AS count FROM attachments WHERE ${UNCONFIRMED_PREDICATE} AND owner_device_id = :deviceId AND owner_pairing_generation = :pairingGeneration`)
+      .get({ deviceId, pairingGeneration }) as { count: number };
     return row.count;
   }
 
   /**
-   * 解除配对: removes every unconfirmed attachment with its staged bytes.
+   * 解除配对: removes the target pairing's unconfirmed attachments and bytes.
    *
    * §13 makes this a resource-level transaction, not a per-attachment state
    * jump, so the rows themselves go — the bytes are already gone and the
@@ -359,18 +379,21 @@ export class AttachmentStore {
    * commit: removing them inside the transaction would leave a durable row
    * pointing at a file that no longer exists if the surrounding work rolls back.
    *
-   * Known limitation, stated rather than papered over: `attachments` carries no
-   * device column in this schema, so the sweep is account-wide. Until a device
-   * attribution column exists, an unpair also destroys another device's
-   * in-flight bytes.
+   * Rows from before device attribution was added remain unowned and are left
+   * to TTL cleanup. Guessing an owner could destroy another device's bytes.
    */
-  revokeUnconfirmed(input: Readonly<{ correlationId: string; now?: Date }>): number {
+  revokeUnconfirmed(input: Readonly<{
+    deviceId: string;
+    pairingGeneration: number;
+    correlationId: string;
+    now?: Date;
+  }>): number {
     const now = input.now ?? new Date();
     const pathsToDelete = new Set<string>();
     return this.store.transaction(() => {
       const rows = this.store.database
-        .prepare(`SELECT * FROM attachments WHERE ${UNCONFIRMED_PREDICATE}`)
-        .all() as Record<string, unknown>[];
+        .prepare(`SELECT * FROM attachments WHERE ${UNCONFIRMED_PREDICATE} AND owner_device_id = ? AND owner_pairing_generation = ?`)
+        .all(input.deviceId, input.pairingGeneration) as Record<string, unknown>[];
       for (const row of rows) {
         const contentPath = this.optionalContentPath(row);
         if (contentPath !== null) pathsToDelete.add(contentPath);
@@ -381,8 +404,8 @@ export class AttachmentStore {
       if (rows.length > 0) {
         this.audit.append({
           eventType: "attachment.revoked",
-          actor: { accountId: this.accountId },
-          subject: { scope: "unpair", revoked: rows.length },
+          actor: { accountId: this.accountId, deviceId: input.deviceId },
+          subject: { scope: "unpair", pairingGeneration: input.pairingGeneration, revoked: rows.length },
           correlationId: input.correlationId,
           occurredAt: now.toISOString(),
         });

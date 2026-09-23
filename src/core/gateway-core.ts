@@ -990,6 +990,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                   mediaType: String(body.mediaType),
                   sizeBytes: Number(body.sizeBytes),
                   sha256: String(body.sha256),
+                  deviceId: request.context!.deviceId,
+                  pairingGeneration: request.context!.pairingGeneration,
                   correlationId: request.context!.correlationId,
                 })),
               });

@@ -126,6 +126,7 @@ export class PairingService {
       // mistake an already-unpaired device for a freshly revoked one.
       if (key === undefined) throw new Error("PAIRING_REQUIRED");
 
+      const pairingGeneration = Number(key.pairing_generation ?? 1);
       const previousGrantRevision = Number(key.grant_revision ?? 1);
 
       // 1. Device key: the Ed25519 public key the device signs with. Without it
@@ -147,6 +148,8 @@ export class PairingService {
 
       // 4. Unconfirmed attachments and their staged bytes.
       const attachments = this.attachments.revokeUnconfirmed({
+        deviceId,
+        pairingGeneration,
         correlationId: input.correlationId,
         now,
       });
@@ -154,7 +157,7 @@ export class PairingService {
       // 5. Every access session of the device, not only the caller's.
       const sessions = this.sessions.revokeDeviceSessions(deviceId, input.correlationId, now);
 
-      const pairingGeneration = this.bumpPairingGeneration();
+      const nextPairingGeneration = this.bumpPairingGeneration();
 
       const receipt: UnpairReceipt = Object.freeze({
         deviceId,
@@ -162,7 +165,7 @@ export class PairingService {
         refreshRevoked: this.sessions.activeRefreshCredentialCount(deviceId) === 0,
         grantsRevoked: !this.hasActivePairing(deviceId),
         deviceRequestsRevoked: this.deviceRequests.countLiveForDevice(deviceId) === 0,
-        unconfirmedAttachmentsRevoked: this.attachments.countUnconfirmed() === 0,
+        unconfirmedAttachmentsRevoked: this.attachments.countUnconfirmed(deviceId, pairingGeneration) === 0,
         sessionsRevoked: this.sessions.activeSessionCount(deviceId) === 0,
       });
 
@@ -171,7 +174,7 @@ export class PairingService {
         actor: { accountId: this.accountId, deviceId },
         subject: {
           previousGrantRevision,
-          pairingGeneration,
+          pairingGeneration: nextPairingGeneration,
           sessions,
           deviceRequests,
           attachments,
@@ -183,7 +186,7 @@ export class PairingService {
 
       return Object.freeze({
         receipt,
-        pairingGeneration,
+        pairingGeneration: nextPairingGeneration,
         revoked: Object.freeze({ sessions, deviceRequests, attachments }),
       });
     });

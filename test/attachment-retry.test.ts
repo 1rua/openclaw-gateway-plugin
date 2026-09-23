@@ -13,6 +13,36 @@ const tempRoot = (): string => mkdtempSync(join(tmpdir(), "oai-openclaw-attachme
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 describe("OpenClaw attachment unknown-outcome recovery", () => {
+  it("fences attachment writes from an older host that cannot bind the active pairing", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x6a) });
+    const account = await core.openGatewayAccount("acct_attachment_format_fence");
+    try {
+      expect(() => account.store.database.prepare(`
+        INSERT INTO attachments(
+          attachment_id, client_attachment_id, client_attachment_key, filename, media_type,
+          size_bytes, sha256, state, content_path, uploaded_size_bytes, uploaded_sha256,
+          created_at, expires_at, delivered_at, acknowledged_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        "att_old_writer", "old_writer", null, "legacy.bin", "application/octet-stream",
+        0, "0".repeat(64), "created", null, null, null,
+        "2026-09-23T00:00:00.000Z", "2026-09-24T00:00:00.000Z", null, null,
+      )).toThrow(/ATTACHMENT_PAIRING_BINDING_REQUIRED/);
+    } finally {
+      account.close();
+    }
+  });
+
+  it("fails closed when the account store is marked with a newer attachment format", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x6a) });
+    const account = await core.openGatewayAccount("acct_attachment_unknown_format");
+    account.store.database.prepare("UPDATE account_metadata SET value = '3' WHERE key = 'attachment_storage_format'").run();
+    account.close();
+
+    await expect(core.openGatewayAccount("acct_attachment_unknown_format"))
+      .rejects.toThrow("ATTACHMENT_STORAGE_VERSION_UNSUPPORTED");
+  });
+
   it("reuses clientAttachmentId, makes repeated PUT/commit idempotent and exposes protocol status", async () => {
     const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x6a) });
     const account = await core.openGatewayAccount("acct_attachment_retry");
