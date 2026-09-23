@@ -7,6 +7,7 @@ import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
 import { coreSchemaHash } from "../../../gateway-contract/src/core-schema-hash.js";
+import staticPluginManifest from "../plugin-manifest.json" with { type: "json" };
 import { createAdminService } from "../src/admin/service.js";
 import { createGatewayCore } from "../src/core/gateway-core.js";
 import { DEFAULT_ATTACHMENT_POLICY } from "../src/core/attachment-policy.js";
@@ -117,10 +118,10 @@ const exposureFor = (services: Partial<GatewayRouteServices> & { core: GatewayRo
 
 const negotiationBody = (overrides: Record<string, unknown> = {}) => ({
   negotiationId: "neg_1",
-  protocol: { major: 2, minor: 0 },
+  protocol: { major: 2, minor: 1 },
   client: {
     installationId: "install_1",
-    appVersion: "2.0.0",
+    appVersion: "2.1.0",
     platform: "android",
     platformApi: 35,
   },
@@ -150,7 +151,7 @@ describe("OpenClaw Gateway capabilities", () => {
     const accepted = await call(exposure, "/open-android-intelligence/v2/negotiate", negotiationBody());
     expect(accepted.statusCode).toBe(200);
     const data = accepted.body["data"] as Record<string, unknown>;
-    expect(data["protocol"]).toEqual({ major: 2, minor: 0 });
+    expect(data["protocol"]).toEqual({ major: 2, minor: 1 });
     const features = data["features"] as Record<string, unknown>;
     // account-invitation and device-key are offered by the client but not
     // implemented here, so they must not come back as agreed.
@@ -167,11 +168,10 @@ describe("OpenClaw Gateway capabilities", () => {
     // painting a card whose decision could never be submitted.
     expect(JSON.stringify(features)).not.toContain("agent-approval-cards-v1");
     expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1"]);
-    expect(data["limits"]).toMatchObject({
-      maxSingleAttachmentBytes: DEFAULT_ATTACHMENT_POLICY.maxSingleAttachmentBytes,
-      maxMessageAttachmentBytes: DEFAULT_ATTACHMENT_POLICY.maxMessageAttachmentBytes,
-      attachmentTtlSeconds: DEFAULT_ATTACHMENT_POLICY.attachmentTtlSeconds,
-    });
+    expect(data["limits"]).toMatchObject({ attachmentTtlSeconds: DEFAULT_ATTACHMENT_POLICY.attachmentTtlSeconds });
+    expect(data["limits"]).not.toHaveProperty("maxSingleAttachmentBytes");
+    expect(data["limits"]).not.toHaveProperty("maxMessageAttachmentBytes");
+    expect(data["limits"]).not.toHaveProperty("allowedMediaTypes");
   });
 
   it("names the stale side in the host log when it refuses a negotiation", async () => {
@@ -192,7 +192,7 @@ describe("OpenClaw Gateway capabilities", () => {
       // line must name the client build and both digests on its own.
       expect(refused).toHaveLength(1);
       expect(refused[0]).toContain("installationId=install_1");
-      expect(refused[0]).toContain("appVersion=2.0.0");
+      expect(refused[0]).toContain("appVersion=2.1.0");
       expect(refused[0]).toContain(`clientCore=sha256:${"b".repeat(8)}`);
       expect(refused[0]).toContain(`gatewayCore=${coreSchemaHash().slice(0, 15)}`);
     } finally {
@@ -275,7 +275,7 @@ describe("OpenClaw Gateway capabilities", () => {
     }
   });
 
-  it("enforces the negotiated attachment policy on the wire", async () => {
+  it("does not reject attachment metadata by size or MIME allowlist", async () => {
     const core = createGatewayCore({ storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
 
@@ -288,21 +288,20 @@ describe("OpenClaw Gateway capabilities", () => {
       ...overrides,
     });
 
-    const tooLarge = await call(exposure, "/open-android-intelligence/v2/attachments", createBody({
-      sizeBytes: DEFAULT_ATTACHMENT_POLICY.maxSingleAttachmentBytes + 1,
+    const aboveFormerLimit = await call(exposure, "/open-android-intelligence/v2/attachments", createBody({
+      sizeBytes: 25 * 1024 * 1024 + 1,
     }));
-    expect(tooLarge.statusCode).toBe(400);
-    expect(tooLarge.body["error"]).toMatchObject({ code: "ATTACHMENT_LIMIT_EXCEEDED" });
+    expect(aboveFormerLimit.statusCode).toBe(200);
 
     const unsupportedType = await call(exposure, "/open-android-intelligence/v2/attachments", createBody({
+      clientAttachmentId: "att_client_zip",
       mediaType: "application/zip",
     }));
-    expect(unsupportedType.statusCode).toBe(400);
-    expect(unsupportedType.body["error"]).toMatchObject({ code: "ATTACHMENT_LIMIT_EXCEEDED" });
+    expect(unsupportedType.statusCode).toBe(200);
 
-    const accepted = await call(exposure, "/open-android-intelligence/v2/attachments", createBody());
+    const accepted = await call(exposure, "/open-android-intelligence/v2/attachments", createBody({ clientAttachmentId: "att_client_default" }));
     expect(accepted.statusCode).toBe(200);
-    expect((accepted.body["data"] as Record<string, unknown>)["attachment"]).toMatchObject({ state: "created" });
+    expect((accepted.body["data"] as Record<string, unknown>)["attachment"]).toMatchObject({ status: "staged" });
   });
 
   it("rejects identity overrides by structure, not by text content", async () => {
@@ -385,11 +384,13 @@ describe("OpenClaw Gateway capabilities", () => {
     const manifest = (await import("../adapter.js")).OPENCLAW_PLUGIN_MANIFEST;
 
     expect(manifest.capabilitySchemaHash).toBe(coreSchemaHash());
+    expect(staticPluginManifest.capabilitySchemaHash).toBe(coreSchemaHash());
+    expect(staticPluginManifest.protocolVersion).toBe("2.1.0");
     // No control may be claimed that the implementation does not enforce.
     expect(manifest.capabilities.encryptionAtRest).toBe(false);
-    expect(manifest.securityBoundary.encryptionAtRest).toBe("not-implemented");
+    expect(manifest.securityBoundary.encryptionAtRest).toBe("attachment-bytes-only");
     expect(manifest.securityBoundary.zeroRetention).toBe("not-implemented");
-    expect(manifest.capabilities.sse).toBe(false);
+    expect(manifest.capabilities.sse).toBe(true);
     expect(manifest.securityBoundary.ed25519).toBe("host-supplied-verifier");
     expect("zeroRetention" in manifest).toBe(false);
 

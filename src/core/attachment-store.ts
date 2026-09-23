@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 import { nextAttachmentState, type AttachmentState } from "../../../../gateway-contract/src/state-machines.js";
@@ -7,6 +7,13 @@ import type { AccountPaths } from "./account-paths.js";
 import type { GatewayAccountStore } from "./account-store.js";
 import { DEFAULT_ATTACHMENT_POLICY, type AttachmentPolicy } from "./attachment-policy.js";
 import { AuditStore } from "./audit-store.js";
+import {
+  decryptAttachmentStream,
+  encryptAttachmentStream,
+  fsyncAttachmentDirectory,
+  verifyEncryptedAttachmentFile,
+  type StreamIntegrity,
+} from "./attachment-crypto.js";
 
 const stageRecoverableStates: readonly AttachmentState[] = [
   "created",
@@ -41,14 +48,17 @@ export type AttachmentRecord = Readonly<{
 }>;
 
 export class AttachmentStore {
+  readonly ready: Promise<void>;
+
   constructor(
     private readonly accountId: string,
     private readonly paths: AccountPaths,
     private readonly store: GatewayAccountStore,
     private readonly audit: AuditStore,
     private readonly policy: AttachmentPolicy = DEFAULT_ATTACHMENT_POLICY,
+    private readonly masterKey?: Uint8Array,
   ) {
-    this.reconcileStagedFiles();
+    this.ready = this.migrateLegacyStagesAsync().then(() => { this.reconcileStagedFiles(); });
   }
 
   get attachmentPolicy(): AttachmentPolicy {
@@ -65,84 +75,175 @@ export class AttachmentStore {
     now?: Date;
     expiresAt?: string;
   }>): AttachmentRecord {
-    // The advertised limits are the enforced limits: a record that could never
-    // be delivered must not be created in the first place.
-    if (
-      !Number.isSafeInteger(input.sizeBytes)
-      || input.sizeBytes < 0
-      || input.sizeBytes > this.policy.maxSingleAttachmentBytes
-      || !this.policy.allowedMediaTypes.includes(input.mediaType)
-    ) {
-      throw new Error("ATTACHMENT_LIMIT_EXCEEDED");
-    }
-    const attachmentId = `att_${randomUUID()}`;
-    const now = input.now ?? new Date();
-    // A caller inside the host may pass an explicit expiry (the TTL sweep is
-    // tested that way); the wire boundary is where a client-supplied expiry is
-    // bounded by the negotiated TTL.
-    const expiresAt = input.expiresAt ?? new Date(now.getTime() + this.policy.attachmentTtlSeconds * 1000).toISOString();
-    this.store.database
-      .prepare(`
-        INSERT INTO attachments(
-          attachment_id, client_attachment_id, filename, media_type, size_bytes, sha256,
-          state, content_path, created_at, expires_at, delivered_at, acknowledged_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 'created', NULL, ?, ?, NULL, NULL)
-      `)
-      .run(
-        attachmentId,
-        input.clientAttachmentId,
-        input.filename,
-        input.mediaType,
-        input.sizeBytes,
-        input.sha256,
-        now.toISOString(),
-        expiresAt,
-      );
-    this.audit.append({
-      eventType: "attachment.created",
-      actor: { accountId: this.accountId },
-      subject: { attachmentId, mediaType: input.mediaType, sizeBytes: input.sizeBytes },
-      correlationId: input.correlationId,
-      occurredAt: now.toISOString(),
+    if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 0) throw new Error("SCHEMA_INVALID");
+    return this.store.transaction(() => {
+      const existing = this.store.database
+        .prepare("SELECT * FROM attachments WHERE client_attachment_key = ?")
+        .get(`client:${input.clientAttachmentId}`) as Record<string, unknown> | undefined;
+      if (existing !== undefined) {
+        if (
+          String(existing.filename) !== input.filename
+          || String(existing.media_type) !== input.mediaType
+          || Number(existing.size_bytes) !== input.sizeBytes
+          || String(existing.sha256) !== input.sha256
+        ) throw new Error("IDEMPOTENCY_CONFLICT");
+        return this.mapRow(existing);
+      }
+      const attachmentId = `att_${randomUUID()}`;
+      const now = input.now ?? new Date();
+      // A caller inside the host may pass an explicit expiry (the TTL sweep is
+      // tested that way); the wire boundary is where a client-supplied expiry is
+      // bounded by the negotiated TTL.
+      const expiresAt = input.expiresAt ?? new Date(now.getTime() + this.policy.attachmentTtlSeconds * 1000).toISOString();
+      this.store.database
+        .prepare(`
+          INSERT INTO attachments(
+            attachment_id, client_attachment_id, client_attachment_key, filename, media_type, size_bytes, sha256,
+            state, content_path, created_at, expires_at, delivered_at, acknowledged_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'created', NULL, ?, ?, NULL, NULL)
+        `)
+        .run(
+          attachmentId,
+          input.clientAttachmentId,
+          `client:${input.clientAttachmentId}`,
+          input.filename,
+          input.mediaType,
+          input.sizeBytes,
+          input.sha256,
+          now.toISOString(),
+          expiresAt,
+        );
+      this.audit.append({
+        eventType: "attachment.created",
+        actor: { accountId: this.accountId },
+        subject: { attachmentId, mediaType: input.mediaType, sizeBytes: input.sizeBytes },
+        correlationId: input.correlationId,
+        occurredAt: now.toISOString(),
+      });
+      return this.get(attachmentId);
     });
-    return this.get(attachmentId);
   }
 
-  uploadContent(attachmentId: string, bytes: Uint8Array): AttachmentRecord {
-    return this.store.transaction(() => {
-      const current = this.getRow(attachmentId);
-      if (Number(current.size_bytes) !== bytes.byteLength) throw new Error("ATTACHMENT_DIGEST_MISMATCH");
-      const next = nextAttachmentState(String(current.state) as AttachmentState, "begin_upload");
-      const contentPath = this.contentPath(attachmentId);
-      mkdirSync(this.paths.attachments, { recursive: true, mode: 0o700 });
-      writeFileSync(contentPath, bytes, { mode: 0o600 });
-      this.store.database
-        .prepare("UPDATE attachments SET state = ?, content_path = ? WHERE attachment_id = ?")
-        .run(next, contentPath, attachmentId);
+  async uploadContent(attachmentId: string, bytes: Uint8Array): Promise<AttachmentRecord> {
+    async function* oneChunk(): AsyncGenerator<Uint8Array> { yield bytes; }
+    return await this.uploadContentStream(attachmentId, oneChunk(), { contentLength: bytes.byteLength });
+  }
+
+  async uploadContentStream(
+    attachmentId: string,
+    source: AsyncIterable<Uint8Array>,
+    input: Readonly<{ contentLength: number; sha256?: string }>,
+  ): Promise<AttachmentRecord> {
+    const current = this.getRow(attachmentId);
+    if (!Number.isSafeInteger(input.contentLength) || input.contentLength < 0
+      || Number(current.size_bytes) !== input.contentLength
+      || (input.sha256 !== undefined && input.sha256 !== String(current.sha256))) {
+      throw new Error("ATTACHMENT_DIGEST_MISMATCH");
+    }
+    const state = String(current.state) as AttachmentState;
+    if (["uploading", "verified", "delivered"].includes(state)
+      && Number(current.uploaded_size_bytes) === input.contentLength
+      && String(current.uploaded_sha256 ?? "") === String(current.sha256)
+      && this.optionalContentPath(current) !== null
+      && existsSync(String(current.content_path))) {
+      const digest = createHash("sha256");
+      let actualLength = 0;
+      for await (const chunk of source) {
+        if (!(chunk instanceof Uint8Array)) throw new Error("REQUEST_BODY_INVALID");
+        digest.update(chunk);
+        actualLength += chunk.byteLength;
+        if (!Number.isSafeInteger(actualLength)) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+      }
+      const actualDigest = digest.digest("hex");
+      if (
+        actualLength !== input.contentLength
+        || actualDigest !== String(current.sha256)
+        || (input.sha256 !== undefined && actualDigest !== input.sha256)
+      ) throw new Error("ATTACHMENT_DIGEST_MISMATCH");
       return this.get(attachmentId);
-    }, {
-      onRollback: () => this.reconcileStagedFile(attachmentId, "rollback"),
-    });
+    }
+    if (state === "acknowledged" || state === "expired" || state === "failed" || state === "deleted") {
+      throw new Error("ATTACHMENT_EXPIRED");
+    }
+    const next = nextAttachmentState(state, "begin_upload");
+    mkdirSync(this.paths.attachments, { recursive: true, mode: 0o700 });
+    const contentPath = this.contentPath(attachmentId);
+    const pendingPath = `${contentPath}.uploading-${randomUUID()}`;
+    try {
+      const integrity = await encryptAttachmentStream(this.masterKey, this.accountId, attachmentId, pendingPath, source);
+      if (integrity.sizeBytes !== input.contentLength
+        || integrity.sizeBytes !== Number(current.size_bytes)
+        || (input.sha256 !== undefined && integrity.sha256 !== input.sha256)) {
+        this.removeIfPresentSafely(pendingPath);
+        throw new Error("ATTACHMENT_DIGEST_MISMATCH");
+      }
+      try {
+        renameSync(pendingPath, contentPath);
+        fsyncAttachmentDirectory(this.paths.attachments);
+      } catch (error) {
+        throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE", { cause: error });
+      }
+      try {
+        this.store.transaction(() => {
+          this.store.database
+            .prepare(`UPDATE attachments
+              SET state = ?, content_path = ?, uploaded_size_bytes = ?, uploaded_sha256 = ?
+              WHERE attachment_id = ?`)
+            .run(next, contentPath, integrity.sizeBytes, integrity.sha256, attachmentId);
+        }, {
+          onRollback: () => this.reconcileStagedFile(attachmentId, "rollback"),
+        });
+      } catch (error) {
+        throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE", { cause: error });
+      }
+      return this.get(attachmentId);
+    } catch (error) {
+      this.removeIfPresentSafely(pendingPath);
+      throw error;
+    }
   }
 
   commit(attachmentId: string): AttachmentRecord {
-    return this.store.transaction(() => {
-      const current = this.getRow(attachmentId);
-      const contentPath = this.requireContentPath(current);
-      const bytes = readFileSync(contentPath);
-      const digest = createHash("sha256").update(bytes).digest("hex");
-      if (digest !== String(current.sha256) || bytes.byteLength !== Number(current.size_bytes)) {
-        this.store.database
-          .prepare("UPDATE attachments SET state = ?, content_path = ? WHERE attachment_id = ?")
-          .run(nextAttachmentState(String(current.state) as AttachmentState, "fail"), contentPath, attachmentId);
-        throw new Error("ATTACHMENT_DIGEST_MISMATCH");
+    const current = this.getRow(attachmentId);
+    const currentState = String(current.state) as AttachmentState;
+    if (["verified", "delivered", "acknowledged"].includes(currentState)) return this.mapRow(current);
+    const contentPath = this.requireContentPath(current);
+    let verificationError: Error | undefined;
+    let verified: StreamIntegrity | undefined;
+    try {
+      verified = verifyEncryptedAttachmentFile(this.masterKey, this.accountId, attachmentId, contentPath);
+    } catch (error) {
+      verificationError = error instanceof Error ? error : new Error("ATTACHMENT_READ_FAILED");
+    }
+    const digestMismatch = verified !== undefined && (
+      verified.sizeBytes !== Number(current.size_bytes)
+      || verified.sha256 !== String(current.sha256)
+      || verified.sizeBytes !== Number(current.uploaded_size_bytes)
+      || verified.sha256 !== String(current.uploaded_sha256 ?? "")
+    );
+    if (verificationError !== undefined || digestMismatch) {
+      try {
+        this.store.transaction(() => {
+          this.store.database
+            .prepare("UPDATE attachments SET state = ? WHERE attachment_id = ?")
+            .run(nextAttachmentState(currentState, "fail"), attachmentId);
+        });
+      } catch (error) {
+        throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE", { cause: error });
       }
-      this.store.database
-        .prepare("UPDATE attachments SET state = ? WHERE attachment_id = ?")
-        .run(nextAttachmentState(String(current.state) as AttachmentState, "verify"), attachmentId);
-      return this.get(attachmentId);
-    });
+      throw verificationError ?? new Error("ATTACHMENT_DIGEST_MISMATCH");
+    }
+    try {
+      return this.store.transaction(() => {
+        this.store.database
+          .prepare("UPDATE attachments SET state = ? WHERE attachment_id = ?")
+          .run(nextAttachmentState(currentState, "verify"), attachmentId);
+        return this.get(attachmentId);
+      });
+    } catch (error) {
+      throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE", { cause: error });
+    }
   }
 
   markDelivered(attachmentId: string, now = new Date()): AttachmentRecord {
@@ -303,6 +404,33 @@ export class AttachmentStore {
     if (record.state !== "verified") throw new Error("ATTACHMENT_EXPIRED");
   }
 
+  openVerifiedStream(attachmentId: string): AsyncGenerator<Buffer> {
+    const row = this.getRow(attachmentId);
+    if (String(row.state) !== "verified") throw new Error("ATTACHMENT_EXPIRED");
+    return decryptAttachmentStream(this.masterKey, this.accountId, attachmentId, this.requireContentPath(row));
+  }
+
+  async materializeVerified(attachmentId: string): Promise<Readonly<{ path: string; cleanup: () => void }>> {
+    const path = join(this.paths.attachments, `${attachmentId}.${randomUUID()}.inbound`);
+    const fd = openSync(path, "wx", 0o600);
+    try {
+      for await (const chunk of this.openVerifiedStream(attachmentId)) {
+        let offset = 0;
+        while (offset < chunk.byteLength) {
+          const written = writeSync(fd, chunk, offset, chunk.byteLength - offset);
+          if (written <= 0) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+          offset += written;
+        }
+      }
+    } catch (error) {
+      closeSync(fd);
+      this.removeIfPresentSafely(path);
+      throw error;
+    }
+    closeSync(fd);
+    return Object.freeze({ path, cleanup: () => { this.removeIfPresentSafely(path); } });
+  }
+
   private transition(
     attachmentId: string,
     event: "deliver",
@@ -320,6 +448,75 @@ export class AttachmentStore {
 
   private contentPath(attachmentId: string): string {
     return join(this.paths.attachments, `${attachmentId}.stage`);
+  }
+
+  private async migrateLegacyStagesAsync(): Promise<void> {
+    const paths = this.stagedPaths();
+    if (paths.length === 0) return;
+    for (const path of paths) {
+      const fd = openSync(path, "r");
+      const prefix = Buffer.alloc(8);
+      try { readSync(fd, prefix, 0, prefix.byteLength, 0); } finally { closeSync(fd); }
+      const attachmentId = path.slice(this.paths.attachments.length + 1, -".stage".length);
+      const row = this.store.database
+        .prepare("SELECT size_bytes, sha256, uploaded_size_bytes, uploaded_sha256 FROM attachments WHERE attachment_id = ?")
+        .get(attachmentId) as { size_bytes: number; sha256: string; uploaded_size_bytes: number | null; uploaded_sha256: string | null } | undefined;
+      if (row === undefined) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+      if (prefix.toString("ascii") === "OAIEAV1\n") {
+        if (row.uploaded_size_bytes !== null && row.uploaded_sha256 !== null) continue;
+        if (this.masterKey === undefined || this.masterKey.byteLength !== 32) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+        const digest = createHash("sha256");
+        let sizeBytes = 0;
+        for await (const chunk of decryptAttachmentStream(this.masterKey, this.accountId, attachmentId, path)) {
+          digest.update(chunk);
+          sizeBytes += chunk.byteLength;
+        }
+        const sha256 = digest.digest("hex");
+        if (sizeBytes !== Number(row.size_bytes) || sha256 !== String(row.sha256)) {
+          throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+        }
+        this.store.transaction(() => {
+          this.store.database
+            .prepare("UPDATE attachments SET uploaded_size_bytes = ?, uploaded_sha256 = ? WHERE attachment_id = ?")
+            .run(sizeBytes, sha256, attachmentId);
+        });
+        continue;
+      }
+      if (this.masterKey === undefined || this.masterKey.byteLength !== 32) {
+        throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+      }
+      const tempPath = `${path}.migrating-${randomUUID()}`;
+      const { createReadStream } = await import("node:fs");
+      try {
+        const integrity = await encryptAttachmentStream(
+          this.masterKey,
+          this.accountId,
+          attachmentId,
+          tempPath,
+          createReadStream(path, { highWaterMark: 64 * 1024 }) as AsyncIterable<Uint8Array>,
+        );
+        if (integrity.sizeBytes !== Number(row.size_bytes) || integrity.sha256 !== String(row.sha256)) {
+          this.removeIfPresentSafely(tempPath);
+          throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+        }
+        // Atomic replacement means readers observe either the old verified file
+        // or the complete encrypted file, never an intermediate format.
+        try {
+          renameSync(tempPath, path);
+          fsyncAttachmentDirectory(this.paths.attachments);
+        } catch (error) {
+          throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE", { cause: error });
+        }
+        this.store.transaction(() => {
+          this.store.database
+            .prepare("UPDATE attachments SET uploaded_size_bytes = ?, uploaded_sha256 = ? WHERE attachment_id = ?")
+            .run(integrity.sizeBytes, integrity.sha256, attachmentId);
+        });
+      } catch (error) {
+        this.removeIfPresentSafely(tempPath);
+        throw error;
+      }
+    }
   }
 
   private stagedPaths(): string[] {

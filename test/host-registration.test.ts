@@ -5,14 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { GatewayCore, VerifiedGatewayRequest } from "../src/core/gateway-core.js";
 import type { OpenClawCliRegistrationOptions, OpenClawCliRegistrar } from "../src/admin/cli.js";
-
-type GatewayRequestVerifierInput = Readonly<{
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  target: string;
-  headers: Readonly<Record<string, string | string[] | undefined>>;
-  rawHeaders: readonly string[];
-  body: Uint8Array;
-}>;
+import type { GatewayRequestVerifierInput } from "../src/http/routes.js";
 
 type RegisteredRoute = Readonly<{
   path: string;
@@ -48,7 +41,7 @@ const fakeCore = (seen: { request?: VerifiedGatewayRequest }): GatewayCore => Ob
     return Object.freeze({
       requestId: identity.requestId,
       correlationId: identity.correlationId,
-      protocol: "2.0" as const,
+      protocol: "2.1" as const,
       data: Object.freeze({ accepted: true, target: request.target }),
     });
   },
@@ -182,7 +175,8 @@ describe("OpenClaw Open Android Intelligence registration", () => {
       listAccountIds: expect.any(Function),
       resolveAccount: expect.any(Function),
     });
-    expect((channel.config as { listAccountIds: (config: unknown) => string[] }).listAccountIds({})).toEqual([]);
+    expect((channel.config as { listAccountIds: (config: unknown) => string[] }).listAccountIds({})).toEqual(["default"]);
+    expect((channel.gateway as { startAccount?: unknown } | undefined)?.startAccount).toBeTypeOf("function");
 
     expect(api.httpRoutes.map((route) => route.path)).toContain("/open-android-intelligence/v2/negotiate");
     const negotiate = api.httpRoutes.find((route) => route.path === "/open-android-intelligence/v2/negotiate");

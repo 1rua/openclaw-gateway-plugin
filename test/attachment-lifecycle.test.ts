@@ -5,10 +5,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createGatewayCore } from "../src/core/gateway-core.js";
+import { createGatewayCore as buildGatewayCore } from "../src/core/gateway-core.js";
 
 const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-attachment-"));
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+const createGatewayCore = (options: Parameters<typeof buildGatewayCore>[0] = {}) =>
+  buildGatewayCore({ ...options, attachmentMasterKey: Buffer.alloc(32, 0x7c) });
 
 describe("OpenClaw Gateway attachment lifecycle", () => {
   it("keeps staged bytes account-local and removes them on ACK and TTL expiry", async () => {
@@ -25,7 +27,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
       sha256: sha256(body),
       correlationId: "cor_attachment",
     });
-    alice.attachments.uploadContent(attachment.attachmentId, body);
+    await alice.attachments.uploadContent(attachment.attachmentId, body);
     const verified = alice.attachments.commit(attachment.attachmentId);
 
     expect(verified.state).toBe("verified");
@@ -46,7 +48,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
       correlationId: "cor_ttl",
       expiresAt: "2026-08-24T00:00:00.000Z",
     });
-    alice.attachments.uploadContent(expired.attachmentId, body);
+    await alice.attachments.uploadContent(expired.attachmentId, body);
     alice.attachments.expireDue(new Date("2026-08-24T00:00:01.000Z"));
     const expiredStatus = alice.attachments.get(expired.attachmentId);
     expect(expiredStatus.state).toBe("expired");
@@ -133,7 +135,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
       correlationId: "cor_digest_rollback",
       expiresAt: "2026-08-27T00:20:00.000Z",
     });
-    account.attachments.uploadContent(attachment.attachmentId, body);
+    await account.attachments.uploadContent(attachment.attachmentId, body);
     account.store.database.exec(`
       CREATE TRIGGER fail_digest_ledger
       BEFORE INSERT ON idempotency_ledger
@@ -196,7 +198,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
       correlationId: "cor_digest_cleanup",
       expiresAt: "2026-08-27T00:30:00.000Z",
     });
-    account.attachments.uploadContent(attachment.attachmentId, body);
+    await account.attachments.uploadContent(attachment.attachmentId, body);
     account.close();
 
     const response = await core.handle({

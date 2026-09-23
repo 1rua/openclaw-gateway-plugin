@@ -38,6 +38,8 @@ export type GatewayRequestVerifierInput = Readonly<{
   headers: Readonly<Record<string, string | string[] | undefined>>;
   rawHeaders: readonly string[];
   body: Uint8Array;
+  /** Canonical hex digest derived only from the singleton signed Digest header. */
+  declaredBodyDigestHex?: string;
 }>;
 
 export type GatewayRequestVerifier = (
@@ -194,11 +196,14 @@ const ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   REQUEST_REPLAYED: 401,
   CLOCK_SKEWED: 401,
   ACCOUNT_NOT_FOUND: 404,
+  ATTACHMENT_EXPIRED: 410,
+  ATTACHMENT_DIGEST_MISMATCH: 400,
   PROTOCOL_INCOMPATIBLE: 406,
   IDEMPOTENCY_CONFLICT: 409,
   CURSOR_CONFLICT: 409,
   CURSOR_EXPIRED: 410,
   REQUEST_BODY_TOO_LARGE: 413,
+  ATTACHMENT_STORAGE_UNAVAILABLE: 507,
   RATE_LIMITED: 429,
 });
 
@@ -283,7 +288,7 @@ const failureResponse = (
   return Object.freeze({
     requestId: identity.requestId,
     correlationId: identity.correlationId,
-    protocol: "2.0" as const,
+    protocol: "2.1" as const,
     error: Object.freeze({
       code,
       message: code,
@@ -326,6 +331,10 @@ const responseHeaders = Object.freeze({
   "content-type": "application/json; charset=utf-8",
 });
 
+const cursorExpiredDetails = Object.freeze({
+  recoverableResources: Object.freeze(["conversations", "attachments", "device-requests"]),
+});
+
 const maxBodyBytes = (value: number | undefined): number => (
   value === undefined || !Number.isSafeInteger(value) || value < 0
     ? DEFAULT_MAX_BODY_BYTES
@@ -360,6 +369,155 @@ const readRequestBody = async (request: IncomingMessage, limit: number): Promise
   }
   if (chunks.length === 0) return new Uint8Array();
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+};
+
+const rawHeaderValues = (rawHeaders: readonly string[], wanted: string): string[] => {
+  const values: string[] = [];
+  for (let index = 0; index + 1 < rawHeaders.length; index += 2) {
+    if (rawHeaders[index]!.toLowerCase() === wanted) values.push(rawHeaders[index + 1]!);
+  }
+  return values;
+};
+
+const parseSingletonAttachmentHeaders = (
+  request: IncomingMessage,
+): Readonly<{ contentLength: number; sha256: string }> | undefined => {
+  const lengths = rawHeaderValues(request.rawHeaders, "content-length");
+  const digests = rawHeaderValues(request.rawHeaders, "digest");
+  if (
+    lengths.length !== 1
+    || digests.length !== 1
+    || rawHeaderValues(request.rawHeaders, "content-encoding").length !== 0
+    || rawHeaderValues(request.rawHeaders, "transfer-encoding").length !== 0
+    || !/^(?:0|[1-9][0-9]*)$/u.test(lengths[0]!)
+  ) return undefined;
+  const contentLength = Number(lengths[0]);
+  if (!Number.isSafeInteger(contentLength) || contentLength < 0) return undefined;
+  const match = /^sha-256=([A-Za-z0-9+/]{43}=)$/u.exec(digests[0]!);
+  if (match === null) return undefined;
+  const decoded = Buffer.from(match[1]!, "base64");
+  if (decoded.byteLength !== 32 || decoded.toString("base64") !== match[1]) return undefined;
+  return Object.freeze({ contentLength, sha256: decoded.toString("hex") });
+};
+
+const writeSseChunk = async (response: ServerResponse, chunk: string): Promise<void> => {
+  if (response.write(chunk)) return;
+  await new Promise<void>((resolve, reject) => {
+    const onDrain = (): void => finish();
+    const onClose = (): void => finish(new Error("SSE_CLIENT_DISCONNECTED"));
+    const onError = (error: Error): void => finish(error);
+    const finish = (error?: Error): void => {
+      response.removeListener("drain", onDrain);
+      response.removeListener("close", onClose);
+      response.removeListener("error", onError);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    response.once("drain", onDrain);
+    response.once("close", onClose);
+    response.once("error", onError);
+  });
+};
+
+const writeSseEvent = async (
+  response: ServerResponse,
+  event: Readonly<{ eventId: string; eventType: string; correlationId: string; occurredAt: string; payload: Readonly<Record<string, unknown>> }>,
+): Promise<void> => {
+  const data = JSON.stringify({
+    correlationId: event.correlationId,
+    occurredAt: event.occurredAt,
+    payload: event.payload,
+  });
+  await writeSseChunk(response, `id: ${event.eventId}\nevent: ${event.eventType}\ndata: ${data}\n\n`);
+};
+
+const streamGatewayEvents = async (
+  request: IncomingMessage,
+  response: ServerResponse,
+  verifiedRequest: VerifiedGatewayRequest,
+  target: string,
+  services: ResolvedGatewayRouteServices,
+): Promise<GatewayHttpResponse | null> => {
+  const cursor = new URL(`https://gateway.local${target}`).searchParams.get("cursor");
+  const lastEventIds = rawHeaderValues(request.rawHeaders, "last-event-id");
+  if (lastEventIds.length > 1) return rawFailureResponse({ verifiedRequest }, "SCHEMA_INVALID");
+  if (lastEventIds.length === 1 && (cursor === null || lastEventIds[0] !== cursor)) {
+    return rawFailureResponse({ verifiedRequest }, "CURSOR_CONFLICT");
+  }
+
+  let account;
+  try {
+    account = await services.core.openGatewayAccount(verifiedRequest.context!.accountId);
+    // Subscribe before replay: events committed during replay are either in the
+    // snapshot or queued online, and event_sequence de-duplicates the overlap.
+    const pending = new Map<number, Readonly<{ eventId: string; eventType: string; correlationId: string; occurredAt: string; payload: Readonly<Record<string, unknown>>; expiresAt: string; sequence: number }>>();
+    let wake: (() => void) | undefined;
+    let closed = false;
+    const unsubscribe = account.events.subscribe((event) => {
+      pending.set(event.sequence, event);
+      wake?.();
+    });
+    const close = (): void => {
+      closed = true;
+      wake?.();
+    };
+    request.once("aborted", close);
+    response.once("close", close);
+    try {
+      const replay = account.events.readAfterWithSequence(cursor);
+      let sequence = account.events.sequenceAfter(cursor);
+      response.statusCode = 200;
+      response.setHeader("content-type", "text/event-stream; charset=utf-8");
+      response.setHeader("cache-control", "no-cache, no-transform");
+      response.setHeader("connection", "keep-alive");
+      response.setHeader("x-accel-buffering", "no");
+      response.flushHeaders?.();
+      for (const event of replay) {
+        if (closed) break;
+        await writeSseEvent(response, event);
+        sequence = event.sequence;
+        pending.delete(event.sequence);
+      }
+      while (!closed && !response.destroyed && !response.writableEnded) {
+        const next = [...pending.values()].sort((left, right) => left.sequence - right.sequence);
+        const deliver = next.find((event) => event.sequence > sequence);
+        if (deliver !== undefined) {
+          pending.delete(deliver.sequence);
+          await writeSseEvent(response, deliver);
+          sequence = deliver.sequence;
+          continue;
+        }
+        const heartbeat = await new Promise<boolean>((resolve) => {
+          let finished = false;
+          const finish = (timedOut: boolean): void => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            wake = undefined;
+            resolve(timedOut);
+          };
+          const timer = setTimeout(() => finish(true), 15_000);
+          wake = () => finish(false);
+          if (closed || pending.size > 0) finish(false);
+        });
+        if (closed) break;
+        if (heartbeat) await writeSseChunk(response, ": ping\n\n");
+      }
+      return null;
+    } finally {
+      unsubscribe();
+      request.removeListener("aborted", close);
+      response.removeListener("close", close);
+      if (!response.destroyed && !response.writableEnded) response.end();
+    }
+  } catch (error) {
+    if (response.headersSent) return null;
+    const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
+    if (code === "CURSOR_EXPIRED") return rawFailureResponse({ verifiedRequest }, code, cursorExpiredDetails);
+    return rawFailureResponse({ verifiedRequest }, code === "ATTACHMENT_STORAGE_UNAVAILABLE" ? code : "INTERNAL_ERROR");
+  } finally {
+    account?.close();
+  }
 };
 
 const rawRequestTarget = (request: IncomingMessage): string | undefined => {
@@ -413,9 +571,23 @@ const authenticationRequiredResponse = (
 const rawFailureResponse = (
   request: GatewayRouteRequest,
   code: string,
+  details: Readonly<Record<string, unknown>> = {},
 ): GatewayHttpResponse => {
-  const body = failureResponse(request, code);
+  const body = failureResponse(request, code, details);
   return Object.freeze({ statusCode: errorStatus(body), headers: responseHeaders, body });
+};
+
+const routeErrorCode = (error: unknown): string => {
+  const code = error instanceof Error ? error.message : "";
+  return code === "ATTACHMENT_STORAGE_UNAVAILABLE"
+    || code === "ATTACHMENT_DIGEST_MISMATCH"
+    || code === "ATTACHMENT_EXPIRED"
+    || code === "SCHEMA_INVALID"
+    || code === "CURSOR_EXPIRED"
+    || code === "CURSOR_CONFLICT"
+    || code === "OUTCOME_UNKNOWN"
+    ? code
+    : "INTERNAL_ERROR";
 };
 
 const createRoute = (
@@ -437,13 +609,50 @@ const createRoute = (
     });
   };
 
-  const handleRaw = async (request: IncomingMessage): Promise<GatewayHttpResponse> => {
+  const handleRaw = async (request: IncomingMessage, response: ServerResponse): Promise<GatewayHttpResponse | null> => {
     const emptyRequest: GatewayRouteRequest = {};
     if (!isHostApiCompatible(services.hostVersion, services.hostApi)) return incompatibleResponse(emptyRequest, services);
 
     const method = rawRequestMethod(request);
     const target = rawRequestTarget(request);
     if (method === undefined || target === undefined) return authenticationRequiredResponse(emptyRequest);
+
+    const attachmentContentMatch = method === "PUT"
+      ? target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)\/content$/)
+      : undefined;
+    if (attachmentContentMatch?.[1] !== undefined) {
+      const headers = parseSingletonAttachmentHeaders(request);
+      if (headers === undefined) return rawFailureResponse(emptyRequest, "SCHEMA_INVALID");
+      if (services.verifyRequest === undefined) return authenticationRequiredResponse(emptyRequest);
+      let verified: VerifiedGatewayRequest | undefined;
+      try {
+        verified = await services.verifyRequest({
+          request,
+          req: request,
+          method,
+          target,
+          headers: Object.freeze({ ...request.headers }),
+          rawHeaders: Object.freeze([...request.rawHeaders]),
+          body: new Uint8Array(),
+          declaredBodyDigestHex: headers.sha256,
+        });
+      } catch {
+        verified = undefined;
+      }
+      if (verified === undefined) return authenticationRequiredResponse(emptyRequest);
+      if (services.core.uploadAttachmentContent === undefined) return rawFailureResponse(emptyRequest, "HOST_INCOMPATIBLE");
+      try {
+        const response = await services.core.uploadAttachmentContent(verified, request, headers);
+        if (response.error !== undefined) {
+          console.warn(`[open_android] Attachment stream rejected: code=${response.error.code}`);
+        }
+        return Object.freeze({ statusCode: errorStatus(response), headers: responseHeaders, body: response });
+      } catch (error) {
+        const code = routeErrorCode(error);
+        console.warn(`[open_android] Attachment stream route failed: code=${code}`);
+        return rawFailureResponse(emptyRequest, code);
+      }
+    }
 
     let body: Uint8Array;
     try {
@@ -487,11 +696,17 @@ const createRoute = (
       if (verifiedRequest === undefined) return authenticationRequiredResponse(emptyRequest);
     }
 
-    const response = await services.core.handle(verifiedRequest);
+    const eventsRoute = method === "GET" && target.split("?")[0] === "/open-android-intelligence/v2/events";
+    const accept = String(headerValue(request.headers["accept"]) ?? "").toLowerCase();
+    if (eventsRoute && accept.split(",").some((value) => value.trim().startsWith("text/event-stream"))) {
+      return await streamGatewayEvents(request, response, verifiedRequest, target, services);
+    }
+
+    const coreResponse = await services.core.handle(verifiedRequest);
     return Object.freeze({
-      statusCode: errorStatus(response),
+      statusCode: errorStatus(coreResponse),
       headers: responseHeaders,
-      body: response,
+      body: coreResponse,
     });
   };
 
@@ -503,9 +718,13 @@ const createRoute = (
     handler: async (request, response): Promise<boolean> => {
       let result: GatewayHttpResponse;
       try {
-        result = await handleRaw(request);
-      } catch {
-        result = rawFailureResponse({}, "INTERNAL_ERROR");
+        const rawResult = await handleRaw(request, response);
+        if (rawResult === null) return true;
+        result = rawResult;
+      } catch (error) {
+        const code = routeErrorCode(error);
+        console.warn(`[open_android] Gateway route failed: code=${code}`);
+        result = rawFailureResponse({}, code);
       }
       response.statusCode = result.statusCode;
       for (const [name, value] of Object.entries(result.headers)) response.setHeader(name, value);

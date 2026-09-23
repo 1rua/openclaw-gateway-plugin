@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
 
 import canonicalize from "canonicalize";
 
@@ -9,6 +11,7 @@ import { accountPaths, defaultOpenClawGatewayRoot, type AccountPaths } from "./a
 import { openAccountStore, type GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";
 import { AttachmentStore } from "./attachment-store.js";
+import { loadAttachmentMasterKey } from "./attachment-master-key.js";
 import { DEFAULT_ATTACHMENT_POLICY, type AttachmentPolicy } from "./attachment-policy.js";
 import { ConversationPort } from "./conversation-port.js";
 import { CredentialStore } from "./credential-store.js";
@@ -41,7 +44,26 @@ export type GatewayAccount = Readonly<{
 export type GatewayCoreOptions = Readonly<{
   storageRoot?: string;
   attachmentPolicy?: AttachmentPolicy;
+  attachmentMasterKey?: Uint8Array;
 }>;
+
+const attachmentStatusDto = (attachment: Readonly<{
+  attachmentId: string;
+  state: string;
+  sizeBytes: number;
+  sha256: string;
+}>): Readonly<Record<string, unknown>> => Object.freeze({
+  attachmentId: attachment.attachmentId,
+  status: attachment.state === "created" || attachment.state === "uploading"
+    ? "staged"
+    : attachment.state === "failed"
+      ? "failed"
+      : attachment.state === "expired" || attachment.state === "deleted"
+        ? "expired"
+        : "uploaded",
+  sizeBytes: attachment.sizeBytes,
+  sha256: attachment.sha256,
+});
 
 export type VerifiedRequestContext = Readonly<{
   accountId: string;
@@ -62,7 +84,7 @@ export type VerifiedRequestContext = Readonly<{
  */
 export type VerifiedGatewayRequest = Readonly<{
   context?: VerifiedRequestContext;
-  method: "GET" | "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   target: string;
   body?: unknown;
   headers?: Readonly<Record<string, string>>;
@@ -74,7 +96,7 @@ export type VerifiedGatewayRequest = Readonly<{
 export type GatewayResponse = Readonly<{
   requestId: string;
   correlationId: string;
-  protocol: "2.0";
+  protocol: "2.1";
   data?: Readonly<Record<string, unknown>>;
   error?: Readonly<{
     code: string;
@@ -87,17 +109,23 @@ export type GatewayResponse = Readonly<{
 
 export type GatewayCore = Readonly<{
   openGatewayAccount: (accountId: string) => Promise<GatewayAccount>;
+  listGatewayAccountIds?: () => string[];
   /** Whether this host registered the account; login never creates one. */
   accountExists: (accountId: string) => boolean;
   /** Resource-level removal of one logical Gateway (contract §13). */
   deleteGatewayAccount: (accountId: string) => boolean;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
+  uploadAttachmentContent?: (
+    request: VerifiedGatewayRequest,
+    source: AsyncIterable<Uint8Array>,
+    input: Readonly<{ contentLength: number; sha256: string }>,
+  ) => Promise<GatewayResponse>;
   runSharedVectors: (contractRoot?: string) => ConformanceResult[];
 }>;
 
 export type { ConformanceResult, ConformanceVectorOperation };
 
-export const GATEWAY_PROTOCOL_VERSION = Object.freeze({ major: 2, minor: 0 });
+export const GATEWAY_PROTOCOL_VERSION = Object.freeze({ major: 2, minor: 1 });
 
 /**
  * Only capabilities this implementation actually serves are ever advertised.
@@ -110,10 +138,9 @@ export const SUPPORTED_AUTH = Object.freeze(["password", "refresh"]);
 // with the authoritative id, so agreeing to it would promise the phone a service
 // that does not exist. The phone reads the absence and tells the user instead of
 // building a conversation only it knows about.
-// `agent-approval-cards-v1` (contract §7.2) is deliberately absent for the same
-// reason: this host has no live SSE/WebSocket channel, so it could never push an
-// approval card to the phone nor receive its decision in time. Agreeing to it
-// would paint a card whose buttons can do nothing.
+// `agent-approval-cards-v1` (contract §7.2) is deliberately absent because this
+// host has no approval-card endpoint, durable decision record or decision
+// handler. A live SSE status channel does not implement those missing actions.
 export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1"]);
 export const REQUIRED_FEATURES = Object.freeze({
   messages: "chat-v1",
@@ -150,7 +177,7 @@ const success = (
   return Object.freeze({
     requestId: identity.requestId,
     correlationId: identity.correlationId,
-    protocol: "2.0" as const,
+    protocol: "2.1" as const,
     data,
   });
 };
@@ -164,7 +191,7 @@ const failure = (
   return Object.freeze({
     requestId: identity.requestId,
     correlationId: identity.correlationId,
-    protocol: "2.0" as const,
+    protocol: "2.1" as const,
     error: Object.freeze({
       code,
       message: code,
@@ -255,8 +282,8 @@ const protocolErrorCodes = new Set([
   "GRANT_STALE",
   "IDEMPOTENCY_CONFLICT",
   "OUTCOME_UNKNOWN",
-  "ATTACHMENT_LIMIT_EXCEEDED",
   "ATTACHMENT_DIGEST_MISMATCH",
+  "ATTACHMENT_STORAGE_UNAVAILABLE",
   "ATTACHMENT_EXPIRED",
   "CURSOR_CONFLICT",
   "CURSOR_EXPIRED",
@@ -287,7 +314,6 @@ const persistableErrorCodes = new Set([
   "GRANT_STALE",
   "IDEMPOTENCY_CONFLICT",
   "OUTCOME_UNKNOWN",
-  "ATTACHMENT_LIMIT_EXCEEDED",
   "ATTACHMENT_DIGEST_MISMATCH",
   "ATTACHMENT_EXPIRED",
   "CURSOR_CONFLICT",
@@ -426,16 +452,39 @@ const unpairCurrent = (
   return success(request, data);
 };
 
-const buildAccount = (
+const buildAccount = async (
   root: string,
   accountId: string,
   policy: AttachmentPolicy,
-): GatewayAccount => {
+  masterKey: Readonly<{ bytes?: Buffer; reference: string }>,
+): Promise<GatewayAccount> => {
   const paths = accountPaths(root, accountId);
   const store = openAccountStore(paths);
+  store.database.prepare(`
+    INSERT INTO account_metadata(key, value) VALUES ('gateway_account_id', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(accountId);
+  if (masterKey.bytes !== undefined) {
+    const saved = store.database
+      .prepare("SELECT value FROM account_metadata WHERE key = 'master_key_ref'")
+      .get() as { value: string } | undefined;
+    const legacyUnkeyedReference = saved?.value === "unconfigured" || saved?.value.startsWith("host-secret:");
+    if (saved !== undefined && !legacyUnkeyedReference && saved.value !== masterKey.reference) {
+      store.close();
+      throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+    }
+    store.database.prepare("UPDATE account_metadata SET value = ? WHERE key = 'master_key_ref'")
+      .run(masterKey.reference);
+  }
   const audit = new AuditStore(store);
   const events = new EventStore(store, policy.eventRetentionSeconds);
-  const attachments = new AttachmentStore(accountId, paths, store, audit, policy);
+  const attachments = new AttachmentStore(accountId, paths, store, audit, policy, masterKey.bytes);
+  try {
+    await attachments.ready;
+  } catch (error) {
+    store.close();
+    throw error;
+  }
   const credentials = new CredentialStore(store);
   const sessions = new SessionService(accountId, store, audit, events, credentials);
   const deviceRequests = new DeviceRequestStore(accountId, store, audit, events);
@@ -449,7 +498,7 @@ const buildAccount = (
     store,
     audit,
     attachments,
-    conversations: new ConversationPort(accountId, store, attachments, audit, policy),
+    conversations: new ConversationPort(accountId, store, attachments, audit, events, policy),
     deviceRequests,
     events,
     sessions,
@@ -473,6 +522,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
    */
   const resolveRoot = (): string => configuredRoot ?? defaultOpenClawGatewayRoot();
   const policy = options.attachmentPolicy ?? DEFAULT_ATTACHMENT_POLICY;
+  const attachmentMasterKey = loadAttachmentMasterKey(options.attachmentMasterKey);
+  const activeUploads = new Map<string, Promise<GatewayResponse>>();
   // Pending negotiations are short-lived and this host has no durable cross-
   // account store for them; a restart simply requires a new negotiation.
   const pendingNegotiations = new Map<string, { installationId: string; expiresAt: number; inputHash: string }>();
@@ -511,9 +562,6 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       protocol: { ...GATEWAY_PROTOCOL_VERSION },
       features,
       limits: {
-        maxSingleAttachmentBytes: policy.maxSingleAttachmentBytes,
-        maxMessageAttachmentBytes: policy.maxMessageAttachmentBytes,
-        allowedMediaTypes: [...policy.allowedMediaTypes],
         attachmentTtlSeconds: policy.attachmentTtlSeconds,
         eventRetentionSeconds: policy.eventRetentionSeconds,
         maxClockSkewSeconds: policy.maxClockSkewSeconds,
@@ -576,7 +624,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         ) {
           return failure(request, "PROTOCOL_INCOMPATIBLE");
         }
-        const account = buildAccount(resolveRoot(), accountId, policy);
+        const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
         try {
           const bundle = account.sessions.createPasswordSession({
             username: accountId,
@@ -603,7 +651,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         assertSchema("session.refresh", body);
         const accountId = String(body["accountId"]);
         if (!accountExistsIn(resolveRoot(), accountId)) return failure(request, "AUTHENTICATION_FAILED");
-        const account = buildAccount(resolveRoot(), accountId, policy);
+        const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
         try {
           const bundle = account.sessions.refresh({
             refreshCredential: String(body["refreshCredential"]),
@@ -638,7 +686,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         }
         if (!accountExistsIn(resolveRoot(), accountId)) return failure(request, "AUTHENTICATION_FAILED");
         const revokeRefresh = /(?:^|[?&])revokeRefresh=true(?:&|$)/.test(request.target);
-        const account = buildAccount(resolveRoot(), accountId, policy);
+        const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
         try {
           if (!account.sessions.verifyAccessToken(accessToken, sessionId, deviceId, now)) {
             return failure(request, "AUTHENTICATION_FAILED");
@@ -670,9 +718,123 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     }
   };
 
+  const listGatewayAccountIds = (): string[] => {
+    const root = resolveRoot();
+    let directoryNames: string[];
+    try {
+      directoryNames = readdirSync(root);
+    } catch {
+      return [];
+    }
+    const accountIds: string[] = [];
+    for (const directoryName of directoryNames) {
+      const accountDirectory = join(root, directoryName);
+      try { if (!statSync(accountDirectory).isDirectory()) continue; } catch { continue; }
+      const databasePath = join(accountDirectory, "gateway.sqlite");
+      if (!existsSync(databasePath)) continue;
+      let database: DatabaseSync | undefined;
+      try {
+        database = new DatabaseSync(databasePath);
+        const row = database.prepare("SELECT value FROM account_metadata WHERE key = 'gateway_account_id'")
+          .get() as { value: string } | undefined;
+        if (row !== undefined && accountPaths(root, row.value).root === accountDirectory) accountIds.push(row.value);
+      } catch {
+        // An unreadable or legacy database is excluded until it is opened through
+        // the authenticated account path and receives the account identity marker.
+      } finally {
+        database?.close();
+      }
+    }
+    return accountIds.sort();
+  };
+
+  const uploadAttachmentContent = async (
+    request: VerifiedGatewayRequest,
+    source: AsyncIterable<Uint8Array>,
+    input: Readonly<{ contentLength: number; sha256: string }>,
+  ): Promise<GatewayResponse> => {
+    const context = request.context;
+    if (context === undefined) return failure(request, "AUTHENTICATION_REQUIRED");
+    const attachmentMatch = request.target.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)\/content$/);
+    if (request.method !== "PUT" || attachmentMatch?.[1] === undefined) return failure(request, "SCHEMA_INVALID");
+    if (request.idempotencyKey !== context.requestId) return failure(request, "IDEMPOTENCY_CONFLICT");
+    if (!Number.isSafeInteger(input.contentLength) || input.contentLength < 0 || !/^[0-9a-f]{64}$/u.test(input.sha256)) {
+      return failure(request, "SCHEMA_INVALID");
+    }
+    const account = await buildAccount(resolveRoot(), context.accountId, policy, attachmentMasterKey);
+    const attachmentId = attachmentMatch[1];
+    const key = `${context.accountId}\u0000${attachmentId}`;
+    const inputHash = createHash("sha256")
+      .update(canonicalJson({ method: request.method, target: request.target, body: { bytesSha256: input.sha256 } }), "utf8")
+      .digest("hex");
+    const drain = async (): Promise<void> => { for await (const _chunk of source) { /* discard a verified retry stream without buffering */ } };
+    const active = activeUploads.get(key);
+    if (active !== undefined) {
+      try {
+        await active;
+        const existing = account.store.database
+          .prepare("SELECT input_hash, outcome_json FROM idempotency_ledger WHERE device_id = ? AND request_id = ?")
+          .get(context.deviceId, context.requestId) as Record<string, unknown> | undefined;
+        if (existing !== undefined) {
+          await drain();
+          if (String(existing.input_hash) === inputHash) {
+            account.close();
+            return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
+          }
+          account.close();
+          return failure(request, "IDEMPOTENCY_CONFLICT");
+        }
+      } catch (error) {
+        await drain().catch(() => undefined);
+        account.close();
+        return failure(request, gatewayErrorCode(error));
+      }
+    }
+
+    const work = (async (): Promise<GatewayResponse> => {
+      try {
+        const existing = account.store.database
+          .prepare("SELECT input_hash, outcome_json, expires_at FROM idempotency_ledger WHERE device_id = ? AND request_id = ?")
+          .get(context.deviceId, context.requestId) as Record<string, unknown> | undefined;
+        if (existing !== undefined) {
+          await drain();
+          if (String(existing.input_hash) !== inputHash) return failure(request, "IDEMPOTENCY_CONFLICT");
+          if (Date.parse(String(existing.expires_at)) <= (request.now ?? new Date()).getTime()) return failure(request, "OUTCOME_UNKNOWN");
+          return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
+        }
+        const attachment = await account.attachments.uploadContentStream(attachmentId, source, input);
+        const response = success(request, { attachment: attachmentStatusDto(attachment) });
+        account.store.transaction(() => {
+          account.store.database
+            .prepare(`INSERT INTO idempotency_ledger(device_id, request_id, input_hash, outcome_json, expires_at)
+              VALUES (?, ?, ?, ?, ?)`)
+            .run(
+              context.deviceId,
+              context.requestId,
+              inputHash,
+              JSON.stringify(response),
+              new Date((request.now ?? new Date()).getTime() + 30 * 86_400_000).toISOString(),
+            );
+        });
+        return response;
+      } catch (error) {
+        return failure(request, gatewayErrorCode(error));
+      } finally {
+        account.close();
+      }
+    })();
+    activeUploads.set(key, work);
+    try {
+      return await work;
+    } finally {
+      if (activeUploads.get(key) === work) activeUploads.delete(key);
+    }
+  };
+
   return Object.freeze({
     openGatewayAccount: async (accountId: string): Promise<GatewayAccount> =>
-      buildAccount(resolveRoot(), accountId, policy),
+      buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey),
+    listGatewayAccountIds,
     accountExists: (accountId: string): boolean => accountExistsIn(resolveRoot(), accountId),
     deleteGatewayAccount: (accountId: string): boolean => {
       // The account directory *is* the logical Gateway: database, staged and
@@ -682,10 +844,20 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       rmSync(paths.root, { recursive: true, force: true });
       return true;
     },
+    uploadAttachmentContent,
     handle: async (request: VerifiedGatewayRequest): Promise<GatewayResponse> => {
       try {
         if (request.context === undefined) return await handlePreAuth(request);
-        const account = buildAccount(resolveRoot(), request.context.accountId, policy);
+        if (request.method === "PUT" && request.target.includes("/attachments/") && request.target.endsWith("/content")) {
+          if (!(request.body instanceof Uint8Array)) return failure(request, "SCHEMA_INVALID");
+          async function* source(): AsyncGenerator<Uint8Array> { yield request.body as Uint8Array; }
+          const digest = createHash("sha256").update(request.body).digest("hex");
+          return await uploadAttachmentContent(request, source(), {
+            contentLength: request.body.byteLength,
+            sha256: digest,
+          });
+        }
+        const account = await buildAccount(resolveRoot(), request.context.accountId, policy, attachmentMasterKey);
         try {
           assertNoIdentityOverride(request.body);
           if (request.method === "GET" && request.target.startsWith("/open-android-intelligence/v2/events")) {
@@ -741,6 +913,12 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             }
             if (request.method === "GET" && request.target === "/open-android-intelligence/v2/conversations") {
               return success(request, { conversations: account.conversations.list() });
+            }
+            const attachmentStatusMatch = request.method === "GET"
+              ? request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)$/)
+              : undefined;
+            if (attachmentStatusMatch?.[1] !== undefined) {
+              return success(request, { attachment: attachmentStatusDto(account.attachments.get(attachmentStatusMatch[1])) });
             }
             const conversationGet = request.method === "GET"
               ? request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)$/)
@@ -806,27 +984,20 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               assertSchema("attachment.create", request.body);
               const body = bodyRecord(request.body);
               return success(request, {
-                attachment: account.attachments.create({
+                attachment: attachmentStatusDto(account.attachments.create({
                   clientAttachmentId: String(body.clientAttachmentId),
                   filename: String(body.filename),
                   mediaType: String(body.mediaType),
                   sizeBytes: Number(body.sizeBytes),
                   sha256: String(body.sha256),
                   correlationId: request.context!.correlationId,
-                }),
-              });
-            }
-            const attachmentContentMatch = request.target.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)\/content$/);
-            if (request.method === "PUT" && attachmentContentMatch?.[1] !== undefined) {
-              if (!(request.body instanceof Uint8Array)) throw new Error("SCHEMA_INVALID");
-              return success(request, {
-                attachment: account.attachments.uploadContent(attachmentContentMatch[1], request.body),
+                })),
               });
             }
             const attachmentCommitMatch = request.target.match(/^\/open-android-intelligence\/v2\/attachments\/([^/]+)\/commit$/);
             if (request.method === "POST" && attachmentCommitMatch?.[1] !== undefined) {
               return success(request, {
-                attachment: account.attachments.commit(attachmentCommitMatch[1]),
+                attachment: attachmentStatusDto(account.attachments.commit(attachmentCommitMatch[1])),
               });
             }
             if (request.method === "POST" && claimMatch?.[1] !== undefined) {

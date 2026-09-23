@@ -46,7 +46,7 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
   id: "open-android-intelligence-gateway",
   backend: "openclaw",
   upstream: Object.freeze({ release: "2026.7.1-2", tag: "v2026.7.1-2", commit: OPENCLAW_HOST_API.verifiedCommit }),
-  protocolVersion: "gateway-protocol-v2",
+  protocolVersion: "2.1.0",
   // The digest the phone compares during negotiation (contract §4), computed
   // from the checked-in Schema documents rather than named after them.
   capabilitySchemaHash: coreSchemaHash(),
@@ -81,22 +81,23 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     unpair: true,
     commandCatalog: true,
     /**
-     * Contract §7.2 interactive approval cards. This host has no live push
-     * channel, so it can neither deliver a card nor take its decision in time;
+     * Contract §7.2 interactive approval cards. This host has no approval-card
+     * endpoint, durable decision record or decision handler;
      * the phone must say approval cards are unavailable here instead of showing
      * buttons that cannot be submitted.
      */
     approvalCards: false,
     conversationRead: true,
     attachmentPolicy: true,
-    /** Contract §9 server-sent events: this build answers `GET /events` with JSON. */
-    sse: false,
+    /** Account-isolated replayable Server-Sent Events on the authenticated /events route. */
+    sse: true,
     messageBatches: false,
     generationCancel: false,
     mirrorSync: false,
     invitationPairing: false,
     deviceKeySessions: false,
-    /** Attachment bytes, event payloads and device-request parameters are not encrypted at rest. */
+    /** Only attachment bytes are encrypted; SQLite metadata and events remain plaintext. */
+    attachmentEncryptionAtRest: true,
     encryptionAtRest: false,
   }),
   tools: FROZEN_PROVIDER_TOOLS,
@@ -108,7 +109,7 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     // pairing/grant revisions a verifier needs through `SessionService.resolveSession`.
     ed25519: "host-supplied-verifier",
     transport: "host-or-explicit-terminator",
-    encryptionAtRest: "not-implemented",
+    encryptionAtRest: "attachment-bytes-only",
     zeroRetention: "not-implemented",
   }),
 });

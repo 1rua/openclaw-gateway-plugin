@@ -1,4 +1,5 @@
 import { createGatewayCore, type GatewayCore } from "../core/gateway-core.js";
+import { dispatchGatewayMessageToOpenClaw, OPENCLAW_CHANNEL_ID, type OpenClawInboundRuntime, type OpenClawLog } from "./inbound-dispatch.js";
 import {
   createAdminCliRegistrar,
   bindAdminService,
@@ -54,6 +55,9 @@ export type OpenClawChannelPlugin = Readonly<{
     scope?: OpenClawOperatorScope;
     description?: string;
   }>>;
+  gateway?: Readonly<{
+    startAccount: (context: unknown) => Promise<void> | void;
+  }>;
 }>;
 
 export const OPEN_ANDROID_INTELLIGENCE_CHANNEL: OpenClawChannelPlugin = Object.freeze({
@@ -80,6 +84,143 @@ export const OPEN_ANDROID_INTELLIGENCE_CHANNEL: OpenClawChannelPlugin = Object.f
   gatewayMethods: [],
   gatewayMethodDescriptors: [],
 });
+
+const asLog = (value: unknown): OpenClawLog | undefined => {
+  const record = typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
+  if (record === undefined) return undefined;
+  return Object.freeze({
+    ...(typeof record["info"] === "function" ? { info: record["info"] as (message: string) => void } : {}),
+    ...(typeof record["warn"] === "function" ? { warn: record["warn"] as (message: string) => void } : {}),
+    ...(typeof record["error"] === "function" ? { error: record["error"] as (message: string) => void } : {}),
+  });
+};
+
+const asInboundRuntime = (value: unknown): OpenClawInboundRuntime | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const runtime = value as Record<string, unknown>;
+  const inbound = runtime["inbound"] as Record<string, unknown> | undefined;
+  const routing = runtime["routing"] as Record<string, unknown> | undefined;
+  const session = runtime["session"] as Record<string, unknown> | undefined;
+  const reply = runtime["reply"] as Record<string, unknown> | undefined;
+  if (
+    typeof inbound?.["run"] !== "function"
+    || typeof inbound["buildContext"] !== "function"
+    || typeof routing?.["resolveAgentRoute"] !== "function"
+    || typeof session?.["resolveStorePath"] !== "function"
+    || typeof session["recordInboundSession"] !== "function"
+    || typeof reply?.["dispatchReplyWithBufferedBlockDispatcher"] !== "function"
+  ) return undefined;
+  return value as OpenClawInboundRuntime;
+};
+
+const waitForWorkerTick = (signal: AbortSignal): Promise<void> => new Promise((resolve) => {
+  if (signal.aborted) { resolve(); return; }
+  const timer = setTimeout(done, 500);
+  function done(): void {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", done);
+    resolve();
+  }
+  signal.addEventListener("abort", done, { once: true });
+});
+
+const startInboundWorker = (
+  core: GatewayCore,
+  channelAccountId: string,
+  runtime: OpenClawInboundRuntime | undefined,
+  cfg: unknown,
+  abortSignal: AbortSignal,
+  log?: OpenClawLog,
+): void => {
+  let nextAccountIndex = 0;
+  const nextAttachmentSweepAt = new Map<string, number>();
+  const run = async (): Promise<void> => {
+    while (!abortSignal.aborted) {
+      const accountIds = core.listGatewayAccountIds?.() ?? [];
+      let processed = false;
+      for (let offset = 0; offset < accountIds.length && !abortSignal.aborted; offset += 1) {
+        const index = (nextAccountIndex + offset) % accountIds.length;
+        const accountId = accountIds[index]!;
+        if (!core.accountExists(accountId)) continue;
+        let account: Awaited<ReturnType<GatewayCore["openGatewayAccount"]>> | undefined;
+        try {
+          account = await core.openGatewayAccount(accountId);
+          if (Date.now() >= (nextAttachmentSweepAt.get(accountId) ?? 0)) {
+            account.attachments.expireDue();
+            account.attachments.cleanup();
+            nextAttachmentSweepAt.set(accountId, Date.now() + 60_000);
+          }
+          const message = account.conversations.claimNextMessage();
+          if (message === undefined) {
+            account.close();
+            continue;
+          }
+          processed = true;
+          nextAccountIndex = (index + 1) % accountIds.length;
+          if (runtime === undefined) {
+            account.conversations.markFailed(message.messageId, "AGENT_UNAVAILABLE", `openclaw.host-api-missing.${message.messageId}`);
+            log?.warn?.(`Open Android channel inbound API unavailable: messageId=${message.messageId}`);
+          } else {
+            await dispatchGatewayMessageToOpenClaw({
+              account,
+              message,
+              channelRuntime: runtime,
+              cfg,
+              gatewayAccountId: accountId,
+              channelAccountId,
+              log,
+            });
+          }
+          account.close();
+          break;
+        } catch (error) {
+          account?.close();
+          const candidate = error instanceof Error ? error.message : "";
+          const code = ["ATTACHMENT_STORAGE_UNAVAILABLE", "ATTACHMENT_READ_FAILED", "AGENT_UNAVAILABLE", "AGENT_MEDIA_REJECTED", "MODEL_REQUEST_REJECTED"]
+            .includes(candidate) ? candidate : "INTERNAL_ERROR";
+          log?.error?.(`Open Android Gateway inbound worker failed: accountId=${accountId} code=${code}`);
+        }
+      }
+      if (!processed) await waitForWorkerTick(abortSignal);
+    }
+  };
+  void run().catch((error: unknown) => {
+    log?.error?.(`Open Android Gateway inbound worker stopped: code=${error instanceof Error ? error.name : "unknown"}`);
+  });
+};
+
+export const createOpenAndroidIntelligenceChannel = (core: GatewayCore): OpenClawChannelPlugin => {
+  return Object.freeze({
+    ...OPEN_ANDROID_INTELLIGENCE_CHANNEL,
+    config: Object.freeze({
+      // OpenClaw owns one channel account for this adapter process. Logical
+      // Gateway users live in GatewayCore and are polled independently below.
+      listAccountIds: (_config: unknown): string[] => ["default"],
+      resolveAccount: (_config: unknown, accountId?: string | null): Readonly<{ accountId: string }> => ({
+        accountId: accountId ?? "default",
+      }),
+    }),
+    gateway: Object.freeze({
+      startAccount: (rawContext: unknown): void => {
+        const context = typeof rawContext === "object" && rawContext !== null ? rawContext as Record<string, unknown> : {};
+        const hostAccountId = typeof context["accountId"] === "string" ? context["accountId"] : "";
+        const signal = context["abortSignal"] instanceof AbortSignal ? context["abortSignal"] : undefined;
+        if (hostAccountId.length === 0 || signal === undefined) {
+          asLog(context["log"])?.error?.("Open Android channel startAccount missing accountId or AbortSignal");
+          return;
+        }
+        startInboundWorker(
+          core,
+          hostAccountId,
+          asInboundRuntime(context["channelRuntime"]),
+          context["cfg"],
+          signal,
+          asLog(context["log"]),
+        );
+      },
+    }),
+  });
+};
 
 export type OpenClawChannelRegistration = Readonly<{
   plugin: OpenClawChannelPlugin;
@@ -205,7 +346,7 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
     maxBodyBytes: api.maxBodyBytes,
   });
   api.registerChannel(Object.freeze({
-    plugin: OPEN_ANDROID_INTELLIGENCE_CHANNEL,
+    plugin: createOpenAndroidIntelligenceChannel(services.core),
   }));
   for (const route of services.exposure.routes) {
     api.registerHttpRoute({

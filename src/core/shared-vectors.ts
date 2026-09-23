@@ -70,7 +70,26 @@ export const CONFORMANCE_VECTOR_FILE_NAMES = [
 const FIXTURE_REGISTRY_FILE_NAME = "dispatched-schema-fixtures.json";
 const FIXTURE_META_SCHEMA_FILE_NAME = "dispatched-schema-fixtures-1.0.0.schema.json";
 const SHARED_BINDING_SET_ID = "gateway-core-fixtures-v1";
-const EXPECTED_CATALOG_ENTRY_COUNT = 15;
+const EXPECTED_CATALOG_ENTRY_COUNT = 16;
+const EXPECTED_CATALOG_FIXTURE_IDS = Object.freeze([
+  "event.gateway-notice.v1",
+  "device.sms-query.v1",
+  "response.conversation-create.v1",
+  "error.cursor-expired.v1",
+  "event.conversation-command-result.v1",
+  "event.conversation-approval-requested.v1",
+  "event.conversation-approval-resolved.v1",
+  "event.message-delta.v1",
+  "event.message-completed.v1",
+  "event.title-updated.v1",
+  "event.device-requested.v1",
+  "event.device-request-cancel-requested.v1",
+  "event.pairing-grant-changed.v1",
+  "event.session-revoked.v1",
+  "event.attachment-acknowledged.v1",
+  "event.message-status.v1",
+] as const);
+const MESSAGE_STATUS_SCHEMA_SHA256 = "sha256:abc4431159960c4887471250ecff3580f2f7df32fe8a29b407af55bc3a35d12d";
 
 export type ConformanceVectorOperation =
   | "request.target"
@@ -120,6 +139,7 @@ type VectorCase = Readonly<{
 }>;
 
 type FixtureCatalogEntry = Readonly<{
+  fixtureId: string;
   key: Readonly<Record<string, unknown>>;
   schema: object;
 }>;
@@ -243,6 +263,8 @@ const loadSharedSchemaRegistry = (contractRoot: string): SharedSchemaRegistry =>
   if (
     document.formatVersion !== "1.0.0" ||
     document.catalogEntries.length !== EXPECTED_CATALOG_ENTRY_COUNT ||
+    JSON.stringify(document.catalogEntries.map((entry) => entry.fixtureId)) !== JSON.stringify(EXPECTED_CATALOG_FIXTURE_IDS) ||
+    document.catalogEntries.at(-1)?.key["schemaSha256"] !== MESSAGE_STATUS_SCHEMA_SHA256 ||
     document.bindingSets.length !== 1 ||
     document.bindingSets[0]?.id !== SHARED_BINDING_SET_ID
   ) {

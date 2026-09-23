@@ -2,8 +2,8 @@
   "id": "open-android-intelligence-gateway",
   "backend": "openclaw",
   "upstream": { "release": "2026.7.1-2", "tag": "v2026.7.1-2", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
-  "protocolVersion": "gateway-protocol-v2",
-  "capabilitySchemaHash": "sha256:1ec008a64fdf81deda57a71f1d1d355c6575bf8e7d8f5a3508779a4c871e17cf",
+  "protocolVersion": "2.1.0",
+  "capabilitySchemaHash": "sha256:b84d7ee1efacf538e12af5fca7dd55f3123fba42c98f4ffddd20a5483fe46dba",
   "hostApi": { "min": "2026.7.1", "max": "2026.7.1", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
   "profiles": [
@@ -21,12 +21,13 @@
     "approvalCards": false,
     "conversationRead": true,
     "attachmentPolicy": true,
-    "sse": false,
+    "sse": true,
     "messageBatches": false,
     "generationCancel": false,
     "mirrorSync": false,
     "invitationPairing": false,
     "deviceKeySessions": false,
+    "attachmentEncryptionAtRest": true,
     "encryptionAtRest": false
   },
   "exposureModes": ["host-route", "loopback-reverse-proxy", "direct-tls"],
@@ -35,7 +36,7 @@
     "rawHeaders": "delegated-to-verified-request-seam",
     "ed25519": "host-supplied-verifier",
     "transport": "host-or-explicit-terminator",
-    "encryptionAtRest": "not-implemented",
+    "encryptionAtRest": "attachment-bytes-only",
     "zeroRetention": "not-implemented"
   },
   "tools": [

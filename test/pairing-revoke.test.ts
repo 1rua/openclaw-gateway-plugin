@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  createGatewayCore,
+  createGatewayCore as buildGatewayCore,
   UNPAIR_TARGET,
   type GatewayCore,
   type GatewayResponse,
@@ -13,6 +13,8 @@ import {
 } from "../src/core/gateway-core.js";
 
 const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-unpair-"));
+const createGatewayCore = (options: Parameters<typeof buildGatewayCore>[0] = {}) =>
+  buildGatewayCore({ ...options, attachmentMasterKey: Buffer.alloc(32, 0x7c) });
 
 type LiveSession = Readonly<{
   accountId: string;
@@ -65,7 +67,7 @@ const pairedAccount = async (core: GatewayCore, accountId: string): Promise<Live
       sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
       correlationId: "cor_unpair_attachment",
     });
-    account.attachments.uploadContent(attachment.attachmentId, Buffer.from("hello", "utf8"));
+    await account.attachments.uploadContent(attachment.attachmentId, Buffer.from("hello", "utf8"));
     account.attachments.commit(attachment.attachmentId);
     return {
       accountId,

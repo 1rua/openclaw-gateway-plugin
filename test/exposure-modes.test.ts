@@ -4,15 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
 
 import type { GatewayCore, VerifiedGatewayRequest } from "../src/core/gateway-core.js";
-import type { HostApiCompatibility } from "../src/http/routes.js";
-
-type GatewayRequestVerifierInput = Readonly<{
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  target: string;
-  headers: Readonly<Record<string, string | string[] | undefined>>;
-  rawHeaders: readonly string[];
-  body: Uint8Array;
-}>;
+import type { GatewayRequestVerifierInput, HostApiCompatibility } from "../src/http/routes.js";
 
 const fakeCore = (seen: { requests: VerifiedGatewayRequest[] }): GatewayCore => ({
   openGatewayAccount: async () => {
@@ -28,7 +20,7 @@ const fakeCore = (seen: { requests: VerifiedGatewayRequest[] }): GatewayCore => 
     return Object.freeze({
       requestId: identity.requestId,
       correlationId: identity.correlationId,
-      protocol: "2.0" as const,
+      protocol: "2.1" as const,
       data: Object.freeze({ accepted: true, method: request.method, target: request.target }),
     });
   },
@@ -197,7 +189,7 @@ describe("OpenClaw Open Android Intelligence exposure modes", () => {
       body: {
         requestId: "request-a",
         correlationId: "correlation-a",
-        protocol: "2.0",
+        protocol: "2.1",
         data: { accepted: true, method, target: path },
       },
       contentType: "application/json; charset=utf-8",

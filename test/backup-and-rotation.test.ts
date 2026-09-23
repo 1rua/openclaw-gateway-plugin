@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { GatewayBackupService } from "../src/core/backup-service.js";
-import { createGatewayCore } from "../src/core/gateway-core.js";
+import { createGatewayCore as buildGatewayCore } from "../src/core/gateway-core.js";
 import { IdentityRotationService } from "../src/core/identity-rotation.js";
 
 const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-backup-"));
+const createGatewayCore = (options: Parameters<typeof buildGatewayCore>[0] = {}) =>
+  buildGatewayCore({ ...options, attachmentMasterKey: Buffer.alloc(32, 0x7c) });
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 describe("OpenClaw Gateway backup and identity rotation", () => {
@@ -39,7 +41,7 @@ describe("OpenClaw Gateway backup and identity rotation", () => {
       sha256: sha256(body),
       correlationId: "cor_attachment",
     });
-    alice.attachments.uploadContent(attachment.attachmentId, body);
+    await alice.attachments.uploadContent(attachment.attachmentId, body);
     alice.attachments.commit(attachment.attachmentId);
     alice.attachments.markDelivered(attachment.attachmentId);
     alice.attachments.acknowledge(attachment.attachmentId, "cor_ack");
