@@ -375,7 +375,7 @@ export class AttachmentStore {
           eventType: "attachment.staging.reconciled",
           actor: { accountId: this.accountId },
           subject: { attachmentId, reason },
-          correlationId: `attachment:${attachmentId}`,
+          correlationId: `attachment.acknowledged.${attachmentId}`,
           occurredAt: new Date().toISOString(),
         });
       } catch {

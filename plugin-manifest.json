@@ -3,7 +3,7 @@
   "backend": "openclaw",
   "upstream": { "release": "2026.7.1-2", "tag": "v2026.7.1-2", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "protocolVersion": "gateway-protocol-v2",
-  "capabilitySchemaHash": "sha256:6654ec19d57eeb53591a7bd58f7e6f67f6487d14071db833dd276970e306659b",
+  "capabilitySchemaHash": "sha256:1ec008a64fdf81deda57a71f1d1d355c6575bf8e7d8f5a3508779a4c871e17cf",
   "hostApi": { "min": "2026.7.1", "max": "2026.7.1", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
   "profiles": [

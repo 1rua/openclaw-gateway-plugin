@@ -50,7 +50,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const event = alice.events.append({
       eventType: "gateway.notice",
       correlationId: "cor_evt",
-      payload: { summary: "ready" },
+      payload: { noticeCode: "ready" },
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
     expect(alice.events.readAfter(null, new Date("2026-08-24T12:00:01.000Z")).map((item) => item.eventId)).toContain(event.eventId);
@@ -88,7 +88,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const oldEvent = account.events.append({
       eventType: "gateway.notice",
       correlationId: "cor_old_cursor",
-      payload: { summary: "old" },
+      payload: { noticeCode: "old" },
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
     account.close();

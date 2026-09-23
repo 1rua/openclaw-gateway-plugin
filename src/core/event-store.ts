@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 
+import { createGatewayDispatchedValidator } from "../../../../gateway-contract/src/dispatched-schema-validator.js";
+import fixtureRegistryJson from "../../../../gateway-contract/vectors/dispatched-schema-fixtures.json" with { type: "json" };
+
 import type { GatewayAccountStore } from "./account-store.js";
 
 export type GatewayEvent = Readonly<{
@@ -10,6 +13,42 @@ export type GatewayEvent = Readonly<{
   payload: Readonly<Record<string, unknown>>;
   expiresAt: string;
 }>;
+
+type RawFixtureRegistry = {
+  catalogEntries: Array<{ key: Record<string, unknown>; schema: unknown }>;
+  bindingSets: Array<{
+    bindings: Array<{ key: Record<string, unknown>; schemaSha256: string }>;
+  }>;
+};
+
+/**
+ * One process-wide dispatched validator built from the single shared fixture
+ * registry. Fail closed (contract §9): every appended event payload must
+ * validate against its bound sub-Schema, and an event type without a binding
+ * is rejected instead of delivered unvalidated.
+ */
+const dispatchedEventValidator = (() => {
+  const registry = fixtureRegistryJson as unknown as RawFixtureRegistry;
+  const entries = registry.catalogEntries.map(({ key, schema }) => ({
+    key,
+    schema,
+  })) as unknown as Parameters<typeof createGatewayDispatchedValidator>[0];
+  const core: Array<Record<string, unknown>> = [];
+  const device: Array<Record<string, unknown>> = [];
+  for (const binding of registry.bindingSets[0]!.bindings) {
+    const logical = binding.key;
+    if (logical.kind === "device.request") {
+      device.push({ ...logical, schemaSha256: binding.schemaSha256 });
+    } else {
+      core.push({ ...logical, schemaSha256: binding.schemaSha256 });
+    }
+  }
+  const bindings = {
+    core,
+    device,
+  } as unknown as Parameters<typeof createGatewayDispatchedValidator>[1];
+  return createGatewayDispatchedValidator(entries, bindings);
+})();
 
 export class EventStore {
   constructor(
@@ -32,6 +71,20 @@ export class EventStore {
       payload: input.payload,
       expiresAt: new Date(now.getTime() + this.retentionSeconds * 1000).toISOString(),
     });
+    const verified = dispatchedEventValidator.validate(
+      { kind: "event", eventType: input.eventType },
+      {
+        correlationId: input.correlationId,
+        occurredAt: event.occurredAt,
+        payload: input.payload,
+      },
+    );
+    if (!verified.ok) {
+      console.warn(
+        `[open_android] Rejected event append: eventType=${input.eventType} reason=${verified.errors?.join("; ") ?? "unknown"}`,
+      );
+      throw new Error("SCHEMA_INVALID");
+    }
     this.store.database
       .prepare(`
         INSERT INTO events(event_id, event_type, correlation_id, occurred_at, payload_json, expires_at)

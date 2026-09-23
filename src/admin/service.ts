@@ -161,7 +161,7 @@ export class AdminService {
         }
         const outcome = account.pairings.revoke({
           deviceId: input.deviceId,
-          correlationId: `admin:pairing.revoke:${input.accountId}`,
+          correlationId: `admin.pairing.revoke.${input.accountId}`,
         });
         // The same seven fields the wire endpoint answers with, and nothing
         // else: the generation it moved to is in the audit trail.
@@ -202,7 +202,7 @@ export class AdminService {
       try {
         const outcome = account.pairings.bumpGrantRevision({
           deviceId: input.deviceId,
-          correlationId: `admin:grant.bump:${input.accountId}`,
+          correlationId: `admin.grant.bump.${input.accountId}`,
         });
         // The two fields the revision actually moved, and nothing else: the
         // event and the audit entry carry the same revision.
