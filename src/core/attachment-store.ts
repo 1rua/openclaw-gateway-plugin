@@ -201,7 +201,8 @@ export class AttachmentStore {
         this.store.transaction(() => {
           this.store.database
             .prepare(`UPDATE attachments
-              SET state = ?, content_path = ?, uploaded_size_bytes = ?, uploaded_sha256 = ?
+              SET state = ?, content_path = ?, uploaded_size_bytes = ?, uploaded_sha256 = ?,
+                  storage_revision = storage_revision + 1
               WHERE attachment_id = ?`)
             .run(next, contentPath, integrity.sizeBytes, integrity.sha256, attachmentId);
         }, {
@@ -239,7 +240,7 @@ export class AttachmentStore {
       try {
         this.store.transaction(() => {
           this.store.database
-            .prepare("UPDATE attachments SET state = ? WHERE attachment_id = ?")
+            .prepare("UPDATE attachments SET state = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
             .run(nextAttachmentState(currentState, "fail"), attachmentId);
         });
       } catch (error) {
@@ -250,7 +251,7 @@ export class AttachmentStore {
     try {
       return this.store.transaction(() => {
         this.store.database
-          .prepare("UPDATE attachments SET state = ? WHERE attachment_id = ?")
+          .prepare("UPDATE attachments SET state = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
           .run(nextAttachmentState(currentState, "verify"), attachmentId);
         return this.get(attachmentId);
       });
@@ -269,7 +270,7 @@ export class AttachmentStore {
       const current = this.getRow(attachmentId);
       contentPath = this.optionalContentPath(current);
       this.store.database
-        .prepare("UPDATE attachments SET state = ?, content_path = NULL, acknowledged_at = ? WHERE attachment_id = ?")
+        .prepare("UPDATE attachments SET state = ?, content_path = NULL, acknowledged_at = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
         .run(nextAttachmentState(String(current.state) as AttachmentState, "acknowledge"), now.toISOString(), attachmentId);
       this.audit.append({
         eventType: "attachment.acknowledged",
@@ -302,7 +303,7 @@ export class AttachmentStore {
         ) return;
         contentPath = this.optionalContentPath(current);
         this.store.database
-          .prepare("UPDATE attachments SET state = ?, content_path = NULL WHERE attachment_id = ?")
+          .prepare("UPDATE attachments SET state = ?, content_path = NULL, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
           .run(nextAttachmentState(String(current.state) as AttachmentState, "expire"), String(row.attachment_id));
         expired += 1;
       }, {
@@ -330,7 +331,7 @@ export class AttachmentStore {
         const contentPath = this.optionalContentPath(current);
         if (contentPath === null) continue;
         this.store.database
-          .prepare("UPDATE attachments SET state = ?, content_path = NULL WHERE attachment_id = ?")
+          .prepare("UPDATE attachments SET state = ?, content_path = NULL, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
           .run(nextAttachmentState(state, "cleanup"), attachmentId);
         pathsToDelete.add(contentPath);
       }
@@ -394,6 +395,11 @@ export class AttachmentStore {
       const rows = this.store.database
         .prepare(`SELECT * FROM attachments WHERE ${UNCONFIRMED_PREDICATE} AND owner_device_id = ? AND owner_pairing_generation = ?`)
         .all(input.deviceId, input.pairingGeneration) as Record<string, unknown>[];
+      if (rows.length > 0) {
+        this.store.database
+          .prepare("INSERT INTO account_metadata(key, value) VALUES ('attachment_delete_authorization', 'active') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+          .run();
+      }
       for (const row of rows) {
         const contentPath = this.optionalContentPath(row);
         if (contentPath !== null) pathsToDelete.add(contentPath);
@@ -402,6 +408,7 @@ export class AttachmentStore {
           .run(String(row.attachment_id));
       }
       if (rows.length > 0) {
+        this.store.database.prepare("DELETE FROM account_metadata WHERE key = 'attachment_delete_authorization'").run();
         this.audit.append({
           eventType: "attachment.revoked",
           actor: { accountId: this.accountId, deviceId: input.deviceId },
@@ -463,7 +470,7 @@ export class AttachmentStore {
     return this.store.transaction(() => {
       const current = this.getRow(attachmentId);
       this.store.database
-        .prepare(`UPDATE attachments SET state = ?, ${timestampColumn} = ? WHERE attachment_id = ?`)
+        .prepare(`UPDATE attachments SET state = ?, ${timestampColumn} = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?`)
         .run(nextAttachmentState(String(current.state) as AttachmentState, event), now.toISOString(), attachmentId);
       return this.get(attachmentId);
     });
@@ -482,10 +489,18 @@ export class AttachmentStore {
       try { readSync(fd, prefix, 0, prefix.byteLength, 0); } finally { closeSync(fd); }
       const attachmentId = path.slice(this.paths.attachments.length + 1, -".stage".length);
       const row = this.store.database
-        .prepare("SELECT size_bytes, sha256, uploaded_size_bytes, uploaded_sha256 FROM attachments WHERE attachment_id = ?")
-        .get(attachmentId) as { size_bytes: number; sha256: string; uploaded_size_bytes: number | null; uploaded_sha256: string | null } | undefined;
-      if (row === undefined) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
-      if (prefix.toString("ascii") === "OAIEAV1\n") {
+        .prepare("SELECT state, content_path, size_bytes, sha256, uploaded_size_bytes, uploaded_sha256 FROM attachments WHERE attachment_id = ?")
+        .get(attachmentId) as { state: string; content_path: string | null; size_bytes: number; sha256: string; uploaded_size_bytes: number | null; uploaded_sha256: string | null } | undefined;
+      const encryptedStream = prefix.toString("ascii") === "OAIEAV1\n";
+      if (row === undefined) {
+        if (!this.removeIfPresentSafely(path)) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+        continue;
+      }
+      if (!encryptedStream && row.content_path !== path) {
+        if (!this.removeIfPresentSafely(path)) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+        continue;
+      }
+      if (encryptedStream) {
         if (row.uploaded_size_bytes !== null && row.uploaded_sha256 !== null) continue;
         if (this.masterKey === undefined || this.masterKey.byteLength !== 32) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
         const digest = createHash("sha256");
@@ -500,45 +515,41 @@ export class AttachmentStore {
         }
         this.store.transaction(() => {
           this.store.database
-            .prepare("UPDATE attachments SET uploaded_size_bytes = ?, uploaded_sha256 = ? WHERE attachment_id = ?")
+            .prepare("UPDATE attachments SET uploaded_size_bytes = ?, uploaded_sha256 = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
             .run(sizeBytes, sha256, attachmentId);
         });
         continue;
       }
-      if (this.masterKey === undefined || this.masterKey.byteLength !== 32) {
-        throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
-      }
-      const tempPath = `${path}.migrating-${randomUUID()}`;
-      const { createReadStream } = await import("node:fs");
-      try {
-        const integrity = await encryptAttachmentStream(
-          this.masterKey,
-          this.accountId,
-          attachmentId,
-          tempPath,
-          createReadStream(path, { highWaterMark: 64 * 1024 }) as AsyncIterable<Uint8Array>,
-        );
-        if (integrity.sizeBytes !== Number(row.size_bytes) || integrity.sha256 !== String(row.sha256)) {
-          this.removeIfPresentSafely(tempPath);
-          throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
-        }
-        // Atomic replacement means readers observe either the old verified file
-        // or the complete encrypted file, never an intermediate format.
-        try {
-          renameSync(tempPath, path);
-          fsyncAttachmentDirectory(this.paths.attachments);
-        } catch (error) {
-          throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE", { cause: error });
-        }
-        this.store.transaction(() => {
-          this.store.database
-            .prepare("UPDATE attachments SET uploaded_size_bytes = ?, uploaded_sha256 = ? WHERE attachment_id = ?")
-            .run(integrity.sizeBytes, integrity.sha256, attachmentId);
+      // Legacy OpenClaw stages were plaintext. Do not replace a file in place:
+      // an older host could then read OAIEAV1 bytes as if they were plaintext.
+      // Remove the old row transactionally so a retry with the same
+      // clientAttachmentId can create a fresh streaming attachment. The file
+      // is removed only after that DB decision commits.
+      this.store.transaction(() => {
+        this.audit.append({
+          eventType: "attachment.legacy_format.requires_reupload",
+          actor: { accountId: this.accountId },
+          subject: { attachmentId, format: "plaintext-stage" },
+          correlationId: `legacy-stage-drain:${attachmentId}`,
+          occurredAt: new Date().toISOString(),
         });
-      } catch (error) {
-        this.removeIfPresentSafely(tempPath);
-        throw error;
-      }
+        this.withAttachmentDeleteAuthorization(() => {
+          this.store.database.prepare("DELETE FROM attachments WHERE attachment_id = ?").run(attachmentId);
+        });
+      }, {
+        onCommit: () => this.removeIfPresentSafely(path),
+      });
+    }
+  }
+
+  private withAttachmentDeleteAuthorization<T>(work: () => T): T {
+    this.store.database
+      .prepare("INSERT INTO account_metadata(key, value) VALUES ('attachment_delete_authorization', 'active') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run();
+    try {
+      return work();
+    } finally {
+      this.store.database.prepare("DELETE FROM account_metadata WHERE key = 'attachment_delete_authorization'").run();
     }
   }
 
@@ -580,7 +591,7 @@ export class AttachmentStore {
         const nextState = state === "created" ? "uploading" : state;
         if (currentPath === stagedPath && nextState === state) return;
         this.store.database
-          .prepare("UPDATE attachments SET state = ?, content_path = ? WHERE attachment_id = ?")
+          .prepare("UPDATE attachments SET state = ?, content_path = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
           .run(nextState, stagedPath, attachmentId);
         repaired = true;
       });

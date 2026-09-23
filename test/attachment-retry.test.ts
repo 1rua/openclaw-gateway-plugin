@@ -28,6 +28,21 @@ describe("OpenClaw attachment unknown-outcome recovery", () => {
         0, "0".repeat(64), "created", null, null, null,
         "2026-09-23T00:00:00.000Z", "2026-09-24T00:00:00.000Z", null, null,
       )).toThrow(/ATTACHMENT_PAIRING_BINDING_REQUIRED/);
+
+      const attachment = account.attachments.create({
+        clientAttachmentId: "client_old_writer_update",
+        filename: "legacy.bin",
+        mediaType: "application/octet-stream",
+        sizeBytes: 0,
+        sha256: "0".repeat(64),
+        correlationId: "cor_old_writer_update",
+      });
+      expect(() => account.store.database.prepare(`
+        UPDATE attachments SET state = 'uploading', content_path = ? WHERE attachment_id = ?
+      `).run("old-plaintext.stage", attachment.attachmentId))
+        .toThrow(/ATTACHMENT_STORAGE_VERSION_UNSUPPORTED/);
+      expect(() => account.store.database.prepare("DELETE FROM attachments WHERE attachment_id = ?")
+        .run(attachment.attachmentId)).toThrow(/ATTACHMENT_STORAGE_VERSION_UNSUPPORTED/);
     } finally {
       account.close();
     }
@@ -120,6 +135,7 @@ describe("OpenClaw attachment unknown-outcome recovery", () => {
       CREATE TABLE attachments (
         attachment_id TEXT PRIMARY KEY NOT NULL,
         client_attachment_id TEXT NOT NULL,
+        client_attachment_key TEXT,
         filename TEXT NOT NULL,
         media_type TEXT NOT NULL,
         size_bytes INTEGER NOT NULL,
@@ -132,8 +148,8 @@ describe("OpenClaw attachment unknown-outcome recovery", () => {
         acknowledged_at TEXT
       );
       INSERT INTO attachments VALUES
-        ('att_old_1', 'old-content-id', 'old-1.bin', 'application/x-old', 1, '${"a".repeat(64)}', 'expired', NULL, '2026-09-01T00:00:00.000Z', '2026-09-02T00:00:00.000Z', NULL, NULL),
-        ('att_old_2', 'old-content-id', 'old-2.bin', 'application/x-old', 1, '${"b".repeat(64)}', 'expired', NULL, '2026-09-01T00:00:01.000Z', '2026-09-02T00:00:00.000Z', NULL, NULL);
+        ('att_old_1', 'old-content-id', NULL, 'old-1.bin', 'application/x-old', 1, '${"a".repeat(64)}', 'expired', NULL, '2026-09-01T00:00:00.000Z', '2026-09-02T00:00:00.000Z', NULL, NULL),
+        ('att_old_2', 'old-content-id', NULL, 'old-2.bin', 'application/x-old', 1, '${"b".repeat(64)}', 'expired', NULL, '2026-09-01T00:00:01.000Z', '2026-09-02T00:00:00.000Z', NULL, NULL);
     `);
     legacy.close();
 
@@ -151,6 +167,11 @@ describe("OpenClaw attachment unknown-outcome recovery", () => {
     const keysAfterRollback = verifyRollback.prepare("SELECT client_attachment_key FROM attachments ORDER BY attachment_id")
       .all() as Array<{ client_attachment_key: string | null }>;
     expect(keysAfterRollback).toEqual([{ client_attachment_key: null }, { client_attachment_key: null }]);
+    const columnsAfterRollback = verifyRollback.prepare("PRAGMA table_info(attachments)").all() as Array<{ name: string }>;
+    expect(columnsAfterRollback.some((column) => column.name === "owner_device_id")).toBe(false);
+    expect(columnsAfterRollback.some((column) => column.name === "owner_pairing_generation")).toBe(false);
+    expect(verifyRollback.prepare("SELECT value FROM account_metadata WHERE key = 'attachment_storage_format'").get())
+      .toBeUndefined();
     verifyRollback.exec("DROP TRIGGER fail_client_key_migration");
     verifyRollback.close();
 

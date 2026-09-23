@@ -160,7 +160,7 @@ describe("OpenClaw encrypted streaming attachments", () => {
     bob.close();
   });
 
-  it("recovers a legacy migration interrupted after atomic ciphertext replacement", async () => {
+  it("drains a legacy plaintext stage transactionally and allows the same client attachment to be retried", async () => {
     const storageRoot = tempRoot();
     const core = createGatewayCore({ storageRoot, attachmentMasterKey: masterKey() });
     const account = await core.openGatewayAccount("acct_migrate");
@@ -175,28 +175,43 @@ describe("OpenClaw encrypted streaming attachments", () => {
     });
     const stagePath = join(account.paths.attachments, `${attachment.attachmentId}.stage`);
     writeFileSync(stagePath, bytes, { mode: 0o600 });
-    account.store.database.prepare("UPDATE attachments SET state = 'uploading', content_path = ? WHERE attachment_id = ?")
+    account.store.database.prepare("UPDATE attachments SET state = 'uploading', content_path = ?, storage_revision = storage_revision + 1 WHERE attachment_id = ?")
       .run(stagePath, attachment.attachmentId);
     account.store.database.exec(`
-      CREATE TRIGGER fail_legacy_metadata_update
-      BEFORE UPDATE OF uploaded_size_bytes ON attachments
-      BEGIN SELECT RAISE(ABORT, 'forced migration metadata failure'); END;
+      CREATE TRIGGER fail_legacy_stage_drain
+      BEFORE DELETE ON attachments
+      BEGIN SELECT RAISE(ABORT, 'forced legacy drain failure'); END;
     `);
     account.close();
 
-    await expect(core.openGatewayAccount("acct_migrate")).rejects.toThrow("forced migration metadata failure");
-    expect(readFileSync(stagePath).subarray(0, 8).toString("ascii")).toBe("OAIEAV1\n");
+    await expect(core.openGatewayAccount("acct_migrate")).rejects.toThrow("forced legacy drain failure");
+    expect(readFileSync(stagePath)).toEqual(bytes);
 
     const { DatabaseSync } = await import("node:sqlite");
     const database = new DatabaseSync(join(account.paths.root, "gateway.sqlite"));
-    database.exec("DROP TRIGGER fail_legacy_metadata_update");
+    const preserved = database.prepare("SELECT state, content_path FROM attachments WHERE attachment_id = ?")
+      .get(attachment.attachmentId) as { state: string; content_path: string };
+    expect(preserved).toEqual({ state: "uploading", content_path: stagePath });
+    database.exec("DROP TRIGGER fail_legacy_stage_drain");
     database.close();
 
     const recovered = await core.openGatewayAccount("acct_migrate");
-    expect(recovered.attachments.get(attachment.attachmentId).state).toBe("uploading");
-    expect(recovered.attachments.commit(attachment.attachmentId).state).toBe("verified");
+    expect(() => recovered.attachments.get(attachment.attachmentId)).toThrow("ATTACHMENT_EXPIRED");
+    expect(existsSync(stagePath)).toBe(false);
+    const retry = recovered.attachments.create({
+      clientAttachmentId: "client_legacy",
+      filename: "legacy.bin",
+      mediaType: "application/x-legacy",
+      sizeBytes: bytes.byteLength,
+      sha256: sha256(bytes),
+      deviceId: "__gateway_internal_unattributed__",
+      pairingGeneration: 0,
+      correlationId: "cor_legacy_retry",
+    });
+    await recovered.attachments.uploadContent(retry.attachmentId, bytes);
+    expect(recovered.attachments.commit(retry.attachmentId).state).toBe("verified");
     const recoveredBytes: Buffer[] = [];
-    for await (const chunk of recovered.attachments.openVerifiedStream(attachment.attachmentId)) recoveredBytes.push(chunk);
+    for await (const chunk of recovered.attachments.openVerifiedStream(retry.attachmentId)) recoveredBytes.push(chunk);
     expect(Buffer.concat(recoveredBytes).equals(bytes)).toBe(true);
     recovered.close();
   });

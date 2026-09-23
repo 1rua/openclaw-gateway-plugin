@@ -110,6 +110,7 @@ const migrate = (database: DatabaseSync): void => {
       client_attachment_key TEXT,
       owner_device_id TEXT,
       owner_pairing_generation INTEGER,
+      storage_revision INTEGER NOT NULL DEFAULT 0,
       filename TEXT NOT NULL,
       media_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
@@ -201,10 +202,18 @@ const ensureColumn = (database: DatabaseSync, table: string, column: string, def
   database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 };
 
-const migrateAttachmentClientKeys = (database: DatabaseSync): void => {
-  ensureColumn(database, "attachments", "client_attachment_key", "TEXT");
+const migrateAttachmentSchema = (database: DatabaseSync): void => {
   database.exec("BEGIN IMMEDIATE");
   try {
+    ensureColumn(database, "attachments", "client_attachment_key", "TEXT");
+    ensureColumn(database, "attachments", "owner_device_id", "TEXT");
+    ensureColumn(database, "attachments", "owner_pairing_generation", "INTEGER");
+    ensureColumn(database, "attachments", "storage_revision", "INTEGER NOT NULL DEFAULT 0");
+    ensureMetadata(database, "attachment_storage_format", "2");
+    const attachmentFormat = database.prepare("SELECT value FROM account_metadata WHERE key = 'attachment_storage_format'")
+      .get() as { value: string } | undefined;
+    if (attachmentFormat?.value !== "2") throw new Error("ATTACHMENT_STORAGE_VERSION_UNSUPPORTED");
+
     const rows = database.prepare(`
       SELECT attachment_id, client_attachment_id, client_attachment_key FROM attachments
       ORDER BY created_at ASC, attachment_id ASC
@@ -220,9 +229,37 @@ const migrateAttachmentClientKeys = (database: DatabaseSync): void => {
         .run(key, row.attachment_id);
     }
     database.exec("CREATE UNIQUE INDEX IF NOT EXISTS attachments_client_attachment_key_unique ON attachments(client_attachment_key)");
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS attachments_require_pairing_identity
+      BEFORE INSERT ON attachments
+      WHEN (SELECT value FROM account_metadata WHERE key = 'attachment_storage_format') = '2'
+        AND (NEW.owner_device_id IS NULL OR NEW.owner_device_id = '' OR NEW.owner_pairing_generation IS NULL)
+      BEGIN
+        SELECT RAISE(ABORT, 'ATTACHMENT_PAIRING_BINDING_REQUIRED');
+      END;
+    `);
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS attachments_require_storage_revision
+      BEFORE UPDATE ON attachments
+      WHEN (SELECT value FROM account_metadata WHERE key = 'attachment_storage_format') = '2'
+        AND NEW.storage_revision != OLD.storage_revision + 1
+      BEGIN
+        SELECT RAISE(ABORT, 'ATTACHMENT_STORAGE_VERSION_UNSUPPORTED');
+      END;
+    `);
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS attachments_require_delete_authorization
+      BEFORE DELETE ON attachments
+      WHEN (SELECT value FROM account_metadata WHERE key = 'attachment_storage_format') = '2'
+        AND COALESCE((SELECT value FROM account_metadata WHERE key = 'attachment_delete_authorization'), '') != 'active'
+      BEGIN
+        SELECT RAISE(ABORT, 'ATTACHMENT_STORAGE_VERSION_UNSUPPORTED');
+      END;
+    `);
     database.exec("COMMIT");
   } catch (error) {
     try { database.exec("ROLLBACK"); } catch { /* preserve original migration failure */ }
+    database.close();
     throw error;
   }
 };
@@ -272,25 +309,7 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   };
 
   migrate(database);
-  migrateAttachmentClientKeys(database);
-  ensureColumn(database, "attachments", "owner_device_id", "TEXT");
-  ensureColumn(database, "attachments", "owner_pairing_generation", "INTEGER");
-  ensureMetadata(database, "attachment_storage_format", "2");
-  const attachmentFormat = database.prepare("SELECT value FROM account_metadata WHERE key = 'attachment_storage_format'")
-    .get() as { value: string } | undefined;
-  if (attachmentFormat?.value !== "2") {
-    database.close();
-    throw new Error("ATTACHMENT_STORAGE_VERSION_UNSUPPORTED");
-  }
-  database.exec(`
-    CREATE TRIGGER IF NOT EXISTS attachments_require_pairing_identity
-    BEFORE INSERT ON attachments
-    WHEN (SELECT value FROM account_metadata WHERE key = 'attachment_storage_format') = '2'
-      AND (NEW.owner_device_id IS NULL OR NEW.owner_device_id = '' OR NEW.owner_pairing_generation IS NULL)
-    BEGIN
-      SELECT RAISE(ABORT, 'ATTACHMENT_PAIRING_BINDING_REQUIRED');
-    END;
-  `);
+  migrateAttachmentSchema(database);
   ensureColumn(database, "attachments", "uploaded_size_bytes", "INTEGER");
   ensureColumn(database, "attachments", "uploaded_sha256", "TEXT");
   ensureColumn(database, "messages", "body", "TEXT NOT NULL DEFAULT ''");
