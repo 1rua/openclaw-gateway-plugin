@@ -53,9 +53,53 @@ const sseResponse = (): Readonly<{
 };
 
 describe("OpenClaw conversation status SSE", () => {
+  it.each(["session", "unpair", "delete", "expiry"])("stops a real session stream after %s and preserves other devices", async (action) => {
+    const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x46) });
+    const writer = await core.openGatewayAccount("alice");
+    writer.credentials.setPassword("fixture");
+    const login = (installationId: string) => writer.sessions.createPasswordSession({
+      username: "alice", password: "fixture", installation: { installationId, displayName: "Phone", devicePublicKey: "A".repeat(43) }, correlationId: "cor_login",
+    });
+    const first = login("install_one"), other = login("install_two");
+    const routesFor = (session: typeof first) => createGatewayRoutes({ core, hostVersion: "2026.7.1-2", verifyRequest: (input) => ({
+      context: { accountId: "alice", deviceId: session.deviceId, sessionId: session.sessionId, requestId: "req_stream", correlationId: "cor_stream", pairingGeneration: 1, grantRevision: 1 },
+      method: "GET", target: input.target,
+    }) });
+    const client = sseResponse(), control = sseResponse();
+    const stream = routesFor(first).find((route) => route.path.endsWith("/events"))!.handler(sseRequest(), client.response);
+    const otherStream = routesFor(other).find((route) => route.path.endsWith("/events"))!.handler(sseRequest(), control.response);
+    try {
+      await pause(30);
+      writer.events.append({ eventType: "gateway.notice", correlationId: "cor_before", payload: { noticeCode: "BEFORE" } });
+      await pause(30);
+      expect(client.chunks.join("")).toContain("BEFORE");
+      expect(control.chunks.join("")).toContain("BEFORE");
+      if (action === "session") writer.sessions.revokeSession(first.sessionId, "cor_revoke");
+      else if (action === "unpair") writer.pairings.revoke({ deviceId: first.deviceId, correlationId: "cor_unpair" });
+      else if (action === "expiry") writer.store.database.prepare("UPDATE access_sessions SET expires_at = ? WHERE session_id = ?").run("2000-01-01T00:00:00.000Z", first.sessionId);
+      else core.deleteGatewayAccount("alice");
+      if (action !== "delete") writer.events.append({ eventType: "gateway.notice", correlationId: "cor_after", payload: { noticeCode: "PRIVATE-AFTER" } });
+      await pause(action === "delete" ? 1_100 : 50);
+      expect(client.response.writableEnded).toBe(true);
+      expect(client.chunks.join("")).not.toContain("PRIVATE-AFTER");
+      if (action !== "delete") {
+        expect(control.response.writableEnded).toBe(false);
+        expect(control.chunks.join("")).toContain("PRIVATE-AFTER");
+      }
+    } finally {
+      client.close(); control.close();
+      await Promise.all([stream, otherStream]);
+      writer.close();
+    }
+  });
+
   it("replays from the cursor and pushes events committed through an independent account handle", async () => {
     const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x45) });
     const writer = await core.openGatewayAccount("acct_sse");
+    writer.store.database.exec(`
+      INSERT INTO device_keys(device_id, installation_id, public_key, registered_at) VALUES ('device_sse', 'install_sse', '${"A".repeat(43)}', '2026-09-23T00:00:00.000Z');
+      INSERT INTO access_sessions(session_id, installation_id, device_id, status, created_at, expires_at) VALUES ('session_sse', 'install_sse', 'device_sse', 'active', '2026-09-23T00:00:00.000Z', '2999-01-01T00:00:00.000Z');
+    `);
     const conversation = writer.conversations.create({ clientConversationId: "client_conv_sse", correlationId: "cor_sse_create" });
     writer.events.append({
       eventType: "conversation.message.status",

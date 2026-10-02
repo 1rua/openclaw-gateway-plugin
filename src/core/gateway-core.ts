@@ -45,6 +45,7 @@ export type GatewayCoreOptions = Readonly<{
   storageRoot?: string;
   attachmentPolicy?: AttachmentPolicy;
   attachmentMasterKey?: Uint8Array;
+  tlsSpkiSha256?: string;
 }>;
 
 const attachmentStatusDto = (attachment: Readonly<{
@@ -112,6 +113,8 @@ export type GatewayCore = Readonly<{
   listGatewayAccountIds?: () => string[];
   /** Whether this host registered the account; login never creates one. */
   accountExists: (accountId: string) => boolean;
+  /** Recheck a verified stream binding without consuming its handshake nonce. */
+  isEventSessionActive?: (context: VerifiedRequestContext, now?: Date) => boolean;
   /** Resource-level removal of one logical Gateway (contract §13). */
   deleteGatewayAccount: (accountId: string) => boolean;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
@@ -384,7 +387,7 @@ const runIdempotent = (
       }
       const replayError = validateReplay?.();
       if (replayError !== undefined) return failure(request, replayError);
-      return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
+      return account.store.openJson(String(existing.outcome_json), `idempotency:${request.context!.deviceId}:${request.context!.requestId}`) as GatewayResponse;
     }
 
     let response: GatewayResponse;
@@ -404,7 +407,7 @@ const runIdempotent = (
         request.context!.deviceId,
         request.context!.requestId,
         inputHash,
-        JSON.stringify(response),
+        account.store.sealJson(response, `idempotency:${request.context!.deviceId}:${request.context!.requestId}`),
         new Date(now.getTime() + 30 * 86_400_000).toISOString(),
       );
     return response;
@@ -459,7 +462,7 @@ const buildAccount = async (
   masterKey: Readonly<{ bytes?: Buffer; reference: string }>,
 ): Promise<GatewayAccount> => {
   const paths = accountPaths(root, accountId);
-  const store = openAccountStore(paths);
+  const store = openAccountStore(paths, { accountId, masterKey: masterKey.bytes, reference: masterKey.reference });
   store.database.prepare(`
     INSERT INTO account_metadata(key, value) VALUES ('gateway_account_id', ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
@@ -523,10 +526,22 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   const resolveRoot = (): string => configuredRoot ?? defaultOpenClawGatewayRoot();
   const policy = options.attachmentPolicy ?? DEFAULT_ATTACHMENT_POLICY;
   const attachmentMasterKey = loadAttachmentMasterKey(options.attachmentMasterKey);
+  const tlsSpkiSha256 = options.tlsSpkiSha256 ?? process.env["OPEN_ANDROID_INTELLIGENCE_GATEWAY_TLS_SPKI_SHA256"] ?? null;
+  if (tlsSpkiSha256 !== null && (!/^sha256:[a-f0-9]{64}$/.test(tlsSpkiSha256) || tlsSpkiSha256 === `sha256:${"0".repeat(64)}`)) throw new Error("GATEWAY_TLS_IDENTITY_INVALID");
   const activeUploads = new Map<string, Promise<GatewayResponse>>();
   // Pending negotiations are short-lived and this host has no durable cross-
   // account store for them; a restart simply requires a new negotiation.
   const pendingNegotiations = new Map<string, { installationId: string; expiresAt: number; inputHash: string }>();
+  let passwordJobs = 0;
+  let admissionWindow = 0;
+  let negotiationCount = 0;
+  let passwordCount = 0;
+  const admit = (password: boolean, now: number) => {
+    if (now >= admissionWindow + 60_000 || now < admissionWindow) {
+      admissionWindow = now; negotiationCount = 0; passwordCount = 0;
+    }
+    if (password ? ++passwordCount > 30 || passwordJobs >= 2 : ++negotiationCount > 1000) throw new Error("RATE_LIMITED");
+  };
 
   const negotiationResponse = (
     body: Readonly<Record<string, unknown>>,
@@ -568,10 +583,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       },
       gatewayIdentity: {
         deploymentId: deploymentIdOf(resolveRoot()),
-        // No certificate pin is configured on this host yet; the phone treats an
-        // all-zero pin as "no additional pin", the same value the Hermes host
-        // reports before an account records its own.
-        tlsSpkiSha256: `sha256:${"0".repeat(64)}`,
+        tlsSpkiSha256,
       },
     });
   };
@@ -583,6 +595,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     }
     if (request.method === "POST" && request.target === "/open-android-intelligence/v2/negotiate") {
       try {
+        admit(false, now.getTime());
+        for (const [id, pending] of pendingNegotiations) if (pending.expiresAt <= now.getTime()) pendingNegotiations.delete(id);
         const body = bodyRecord(request.body);
         const response = negotiationResponse(body);
         assertSchema("negotiate.response", response);
@@ -596,7 +610,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
           throw new Error("PROTOCOL_INCOMPATIBLE");
         }
         const installationId = String(bodyRecord(body["client"])["installationId"]);
-        pendingNegotiations.set(negotiationId, {
+        if (existing === undefined && pendingNegotiations.size >= 1000) throw new Error("RATE_LIMITED");
+        if (existing === undefined) pendingNegotiations.set(negotiationId, {
           installationId,
           expiresAt: now.getTime() + 5 * 60 * 1000,
           inputHash,
@@ -607,7 +622,11 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       }
     }
     if (request.method === "POST" && request.target === "/open-android-intelligence/v2/sessions/password") {
+      let admitted = false;
       try {
+        admit(true, now.getTime());
+        passwordJobs += 1;
+        admitted = true;
         const body = bodyRecord(request.body);
         assertSchema("session.password", body);
         // Login must never be the act that creates an account.
@@ -626,7 +645,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         }
         const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
         try {
-          const bundle = account.sessions.createPasswordSession({
+          const bundle = await account.sessions.createPasswordSessionAsync({
             username: accountId,
             password: String(body["password"]),
             installation: {
@@ -643,6 +662,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         }
       } catch (error) {
         return failure(request, gatewayErrorCode(error));
+      } finally {
+        if (admitted) passwordJobs -= 1;
       }
     }
     if (request.method === "POST" && request.target === "/open-android-intelligence/v2/sessions/refresh") {
@@ -778,8 +799,9 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         if (existing !== undefined) {
           await drain();
           if (String(existing.input_hash) === inputHash) {
+            const replay = account.store.openJson(String(existing.outcome_json), `idempotency:${context.deviceId}:${context.requestId}`) as GatewayResponse;
             account.close();
-            return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
+            return replay;
           }
           account.close();
           return failure(request, "IDEMPOTENCY_CONFLICT");
@@ -800,7 +822,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
           await drain();
           if (String(existing.input_hash) !== inputHash) return failure(request, "IDEMPOTENCY_CONFLICT");
           if (Date.parse(String(existing.expires_at)) <= (request.now ?? new Date()).getTime()) return failure(request, "OUTCOME_UNKNOWN");
-          return JSON.parse(String(existing.outcome_json)) as GatewayResponse;
+          return account.store.openJson(String(existing.outcome_json), `idempotency:${context.deviceId}:${context.requestId}`) as GatewayResponse;
         }
         const attachment = await account.attachments.uploadContentStream(attachmentId, source, input);
         const response = success(request, { attachment: attachmentStatusDto(attachment) });
@@ -812,7 +834,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               context.deviceId,
               context.requestId,
               inputHash,
-              JSON.stringify(response),
+              account.store.sealJson(response, `idempotency:${context.deviceId}:${context.requestId}`),
               new Date((request.now ?? new Date()).getTime() + 30 * 86_400_000).toISOString(),
             );
         });
@@ -836,6 +858,22 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey),
     listGatewayAccountIds,
     accountExists: (accountId: string): boolean => accountExistsIn(resolveRoot(), accountId),
+    isEventSessionActive: (context: VerifiedRequestContext, now = new Date()): boolean => {
+      let database: DatabaseSync | undefined;
+      try {
+        // Read the current file, not a handle to a deleted/replaced account.
+        database = new DatabaseSync(accountPaths(resolveRoot(), context.accountId).database, { readOnly: true });
+        const row = database.prepare(`
+          SELECT s.status, s.expires_at, k.pairing_generation
+          FROM access_sessions s JOIN device_keys k ON k.device_id = s.device_id
+          WHERE s.session_id = ? AND s.device_id = ?
+        `).get(context.sessionId, context.deviceId) as { status: string; expires_at: string; pairing_generation: number } | undefined;
+        return row !== undefined && row.status === "active"
+          && Date.parse(row.expires_at) > now.getTime()
+          && Number(row.pairing_generation) === context.pairingGeneration;
+      } catch { return false; }
+      finally { database?.close(); }
+    },
     deleteGatewayAccount: (accountId: string): boolean => {
       // The account directory *is* the logical Gateway: database, staged and
       // confirmed attachment bytes, credentials and the account audit trail.
@@ -1003,16 +1041,14 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               });
             }
             if (request.method === "POST" && claimMatch?.[1] !== undefined) {
-              return success(request, {
-                receipt: account.deviceRequests.claim({
+              return success(request, account.deviceRequests.claim({
                   requestId: claimMatch[1],
                   deviceId: request.context!.deviceId,
                   pairingGeneration: request.context!.pairingGeneration,
                   grantRevision: request.context!.grantRevision,
                   correlationId: request.context!.correlationId,
                   now: request.now,
-                }),
-              });
+                }));
             }
             if (request.method === "POST" && resultMatch?.[1] !== undefined) {
               const body = bodyRecord(request.body);

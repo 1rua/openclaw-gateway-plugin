@@ -17,7 +17,7 @@ const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes)
 describe("OpenClaw Gateway backup and identity rotation", () => {
   it("exports only portable account state and rotates identity without changing the account master key reference", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const alice = await core.openGatewayAccount("acct_alice");
     const initialMasterKeyRef = alice.masterKeyRef;
 
@@ -28,7 +28,7 @@ describe("OpenClaw Gateway backup and identity rotation", () => {
       installation: {
         installationId: "install_backup",
         displayName: "Alice phone",
-        devicePublicKey: "AliceDevicePublicKey",
+        devicePublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       },
       correlationId: "cor_login",
     });
@@ -56,7 +56,7 @@ describe("OpenClaw Gateway backup and identity rotation", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_device",
     });
 

@@ -52,6 +52,9 @@ const dispatchedEventValidator = (() => {
   return createGatewayDispatchedValidator(entries, bindings);
 })();
 
+export const validateDeviceRequest = (value: Readonly<Record<string, unknown>>): boolean =>
+  dispatchedEventValidator.validate({ kind: "device.request" }, value).ok;
+
 export class EventStore {
   constructor(
     private readonly store: GatewayAccountStore,
@@ -69,6 +72,7 @@ export class EventStore {
     now?: Date;
   }>): GatewayEvent {
     const now = input.now ?? new Date();
+    this.purgeExpired(now);
     let notification: Readonly<{ event: GatewayEvent; sequence: number }> | undefined;
     const event = this.store.transaction(() => {
       const counter = this.store.database.prepare("SELECT value FROM account_metadata WHERE key = 'event_sequence'")
@@ -109,7 +113,7 @@ export class EventStore {
           event.eventType,
           event.correlationId,
           event.occurredAt,
-          JSON.stringify(event.payload),
+          this.store.sealJson(event.payload, `event:${event.eventId}`),
           event.expiresAt,
         );
       notification = { event, sequence };
@@ -128,6 +132,7 @@ export class EventStore {
   }
 
   sequenceAfter(cursor: string | null, now = new Date()): number {
+    this.purgeExpired(now);
     if (cursor !== null) {
       const row = this.store.database
         .prepare("SELECT expires_at, event_sequence FROM events WHERE event_id = ?")
@@ -138,6 +143,13 @@ export class EventStore {
       return Number(row.event_sequence);
     }
     return 0;
+  }
+
+  purgeExpired(now = new Date(), limit = 1000): number {
+    const result = this.store.database.prepare(`DELETE FROM events WHERE event_id IN
+      (SELECT event_id FROM events WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`)
+      .run(now.toISOString(), limit) as { changes: number };
+    return Number(result.changes);
   }
 
   readAfterWithSequence(cursor: string | null, now = new Date()): SequencedGatewayEvent[] {
@@ -157,7 +169,7 @@ export class EventStore {
       eventType: String(row.event_type),
       correlationId: String(row.correlation_id),
       occurredAt: String(row.occurred_at),
-      payload: JSON.parse(String(row.payload_json)) as Readonly<Record<string, unknown>>,
+      payload: this.store.openJson(String(row.payload_json), `event:${row.event_id}`) as Readonly<Record<string, unknown>>,
       expiresAt: String(row.expires_at),
     });
   }

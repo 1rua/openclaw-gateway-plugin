@@ -50,10 +50,10 @@ const createInput = (accountId: string, flags: ParsedFlags) => ({
 
 const parseCommand = (args: readonly string[], service: AdminService): AdminCommand | AdminResult => {
   const [first, second, third, ...rest] = args;
-  if (first === "account" && second === "create" && third !== undefined) {
+  if (first === "account" && (second === "create" || second === "reset-password") && third !== undefined) {
     const flags = parseFlags(rest);
     if (flags === undefined) return invalidArguments(service);
-    return { command: "account.create", input: createInput(third, flags) };
+    return { command: second === "create" ? "account.create" : "account.reset-password", input: createInput(third, flags) };
   }
   if (first === "create-account" && second !== undefined) {
     const flags = parseFlags(rest);
@@ -176,6 +176,17 @@ const registerAdminCommands = (context: OpenClawCliContext, service: AdminServic
       ...(stringOption(options, "password") === undefined
         ? []
         : ["--password", stringOption(options, "password")!]),
+    ]));
+
+  account
+    .command("reset-password <accountId>")
+    .description("Reset the password and revoke every account refresh credential; retain pairing keys")
+    .option("--confirm-local", "Confirm this write on the local host")
+    .option("--password <password>", "New account password")
+    .action((accountId, options) => executeAdminCommand(service, [
+      "account", "reset-password", String(accountId),
+      ...(confirmedOption(options) ? ["--confirm-local"] : []),
+      ...(stringOption(options, "password") === undefined ? [] : ["--password", stringOption(options, "password")!]),
     ]));
 
   account

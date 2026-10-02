@@ -107,6 +107,20 @@ export class SessionService {
       : this.credentials.verifyPassword(input.password);
     if (verified !== true) throw new Error("AUTHENTICATION_FAILED");
 
+    return this.createVerifiedSession(input);
+  }
+
+  async createPasswordSessionAsync(input: Parameters<SessionService["createPasswordSession"]>[0]): Promise<SessionBundle> {
+    if (!input.username?.trim() || !this.installationIsComplete(input.installation)) throw new Error("AUTHENTICATION_FAILED");
+    const verified = this.credentialVerifier !== undefined
+      ? this.credentialVerifier({ accountId: this.accountId, username: input.username, password: input.password, installation: input.installation })
+      : await this.credentials.verifyPasswordAsync(input.password);
+    if (verified !== true) throw new Error("AUTHENTICATION_FAILED");
+    return this.createVerifiedSession(input);
+  }
+
+  private createVerifiedSession(input: Parameters<SessionService["createPasswordSession"]>[0]): SessionBundle {
+
     return this.store.transaction(() => {
       const bundle = this.issue(input.installation.installationId, `dev_${randomUUID()}`, input.now);
       this.registerDeviceKey(bundle.deviceId, input.installation, input.now);
@@ -327,7 +341,9 @@ export class SessionService {
   private installationIsComplete(installation: LoginInstallation): boolean {
     return typeof installation === "object" && installation !== null
       && typeof installation.installationId === "string" && installation.installationId.length > 0
-      && typeof installation.devicePublicKey === "string" && installation.devicePublicKey.length > 0;
+      && typeof installation.devicePublicKey === "string" && /^[A-Za-z0-9_-]{43}$/.test(installation.devicePublicKey)
+      && Buffer.from(installation.devicePublicKey, "base64url").byteLength === 32
+      && Buffer.from(installation.devicePublicKey, "base64url").toString("base64url") === installation.devicePublicKey;
   }
 
   private registerDeviceKey(

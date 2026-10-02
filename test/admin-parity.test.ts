@@ -58,7 +58,7 @@ const fakeCore = (writes: { count: number; passwords: string[]; deleted: string[
     return {
       accountId,
       credentials: {
-        setPassword: (password: string): void => { writes.passwords.push(password); },
+        createPassword: (password: string): void => { writes.passwords.push(password); },
       },
       close: () => undefined,
     } as never;

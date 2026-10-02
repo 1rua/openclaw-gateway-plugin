@@ -96,20 +96,18 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     mirrorSync: false,
     invitationPairing: false,
     deviceKeySessions: false,
-    /** Only attachment bytes are encrypted; SQLite metadata and events remain plaintext. */
+    /** Account-scoped AEAD protects temporary payloads and attachment bytes. */
     attachmentEncryptionAtRest: true,
-    encryptionAtRest: false,
+    encryptionAtRest: true,
   }),
   tools: FROZEN_PROVIDER_TOOLS,
   exposureModes: Object.freeze(["host-route", "loopback-reverse-proxy", "direct-tls"] as const),
   management: Object.freeze({ surface: "host-ui-and-local-cli", localOnly: true, remotePort: null, sensitiveOperations: "local-confirmation" }),
   securityBoundary: Object.freeze({
-    rawHeaders: "delegated-to-verified-request-seam",
-    // The host supplies the verifier; the core exposes the device key and the
-    // pairing/grant revisions a verifier needs through `SessionService.resolveSession`.
-    ed25519: "host-supplied-verifier",
+    rawHeaders: "gateway-owned-raw-header-verifier",
+    ed25519: "gateway-owned-verifier",
     transport: "host-or-explicit-terminator",
-    encryptionAtRest: "attachment-bytes-only",
+    encryptionAtRest: "account-scoped-aead-payloads-and-attachments",
     zeroRetention: "not-implemented",
   }),
 });

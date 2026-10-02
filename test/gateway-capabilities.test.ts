@@ -139,7 +139,7 @@ const negotiationBody = (overrides: Record<string, unknown> = {}) => ({
 
 describe("OpenClaw Gateway capabilities", () => {
   it("negotiates with the real schema digest and advertises only implemented capabilities", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
 
     const rejected = await call(exposure, "/open-android-intelligence/v2/negotiate", negotiationBody({
@@ -175,7 +175,7 @@ describe("OpenClaw Gateway capabilities", () => {
   });
 
   it("names the stale side in the host log when it refuses a negotiation", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
     const warnings: string[] = [];
     const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
@@ -201,7 +201,7 @@ describe("OpenClaw Gateway capabilities", () => {
   });
 
   it("stays silent when it accepts a negotiation", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
     const warnings: string[] = [];
     const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
@@ -220,7 +220,7 @@ describe("OpenClaw Gateway capabilities", () => {
 
   it("logs in only an account with a recorded digest, and only after a negotiation", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const admin = createAdminService({ core, hostVersion: HOST_VERSION });
     const exposure = exposureFor({ core });
 
@@ -276,7 +276,7 @@ describe("OpenClaw Gateway capabilities", () => {
   });
 
   it("does not reject attachment metadata by size or MIME allowlist", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
 
     const createBody = (overrides: Record<string, unknown> = {}) => ({
@@ -305,7 +305,7 @@ describe("OpenClaw Gateway capabilities", () => {
   });
 
   it("rejects identity overrides by structure, not by text content", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
 
     const override = await call(exposure, "/open-android-intelligence/v2/conversations", {
@@ -334,7 +334,7 @@ describe("OpenClaw Gateway capabilities", () => {
   });
 
   it("renames a conversation through a signed PATCH and records the title event", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const exposure = exposureFor({ core });
 
     const created = await call(exposure, "/open-android-intelligence/v2/conversations", {
@@ -387,15 +387,15 @@ describe("OpenClaw Gateway capabilities", () => {
     expect(staticPluginManifest.capabilitySchemaHash).toBe(coreSchemaHash());
     expect(staticPluginManifest.protocolVersion).toBe("2.1.0");
     // No control may be claimed that the implementation does not enforce.
-    expect(manifest.capabilities.encryptionAtRest).toBe(false);
-    expect(manifest.securityBoundary.encryptionAtRest).toBe("attachment-bytes-only");
+    expect(manifest.capabilities.encryptionAtRest).toBe(true);
+    expect(manifest.securityBoundary.encryptionAtRest).toBe("account-scoped-aead-payloads-and-attachments");
     expect(manifest.securityBoundary.zeroRetention).toBe("not-implemented");
     expect(manifest.capabilities.sse).toBe(true);
-    expect(manifest.securityBoundary.ed25519).toBe("host-supplied-verifier");
+    expect(manifest.securityBoundary.ed25519).toBe("gateway-owned-verifier");
     expect("zeroRetention" in manifest).toBe(false);
 
     // Every capability claimed as available must have a registered route.
-    const exposure = exposureFor({ core: createGatewayCore({ storageRoot: tempRoot() }) });
+    const exposure = exposureFor({ core: createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() }) });
     const paths = new Set(exposure.routes.map((route) => route.path));
     const claimedRoutes: Array<[boolean, string]> = [
       [manifest.capabilities.negotiation, "/open-android-intelligence/v2/negotiate"],

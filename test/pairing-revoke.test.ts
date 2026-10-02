@@ -37,7 +37,7 @@ const pairedAccount = async (core: GatewayCore, accountId: string): Promise<Live
       installation: {
         installationId: "install_unpair",
         displayName: "Unpair phone",
-        devicePublicKey: "UnpairDevicePublicKey",
+        devicePublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       },
       correlationId: "cor_unpair_login",
     });
@@ -54,9 +54,9 @@ const pairedAccount = async (core: GatewayCore, accountId: string): Promise<Live
       pairingGeneration: 1,
       grantRevision: 1,
       risk: "write",
-      capability: { pluginId: "mobile.sms", capabilityId: "query" },
-      provider: { pluginId: "mobile.sms" },
-      parameters: { limit: 1 },
+      capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" },
+      provider: { pluginId: "org.openandroidintelligence.sms", authorKeyId: "sha256:" + "a".repeat(64) },
+      parameters: { query: "fixture query" },
       correlationId: "cor_unpair_enqueue",
     });
     const attachment = account.attachments.create({
@@ -126,7 +126,7 @@ const countRows = async (
 
 describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   it("revokes the five §13 resource classes and every access session of the device", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
     const accountBeforeUnpair = await core.openGatewayAccount(session.accountId);
     let otherDeviceAttachmentId: string;
@@ -194,7 +194,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   });
 
   it("deletes the device key so no later request of that pairing can be verified", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
 
     const response = await unpair(core, session, "req_unpair_key");
@@ -222,7 +222,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   });
 
   it("answers PAIRING_REQUIRED when the device has no active pairing left", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
 
     const first = await unpair(core, session, "req_unpair_first");
@@ -236,7 +236,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   });
 
   it("keeps refusing a stale request id instead of destroying a fresh re-pair", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
 
     const first = await unpair(core, session, "req_unpair_first");
@@ -268,7 +268,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   });
 
   it("returns the same terminal outcome when the Idempotency-Key is replayed", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
 
     const first = await unpair(core, session, "req_unpair_replay");
@@ -295,7 +295,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   it("keeps unpair behind the verified-request seam instead of the logout waiver", async () => {
     const { createGatewayRoutes } = await import("../src/http/routes.js");
     const routes = createGatewayRoutes({
-      core: createGatewayCore({ storageRoot: tempRoot() }),
+      core: createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() }),
       hostVersion: "2026.7.1",
     });
     const route = routes.find((candidate) => candidate.path === UNPAIR_TARGET);
@@ -311,7 +311,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
   });
 
   it("refuses an unpair whose Idempotency-Key is not bound to the signed request id", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_unpair");
 
     // §6.1/§6.5: an authenticated DELETE carries `Idempotency-Key` exactly once
@@ -327,7 +327,7 @@ describe("OpenClaw Gateway 解除配对 (contract §13 / §5.6, D1)", () => {
 
   it("revokes the same pairing from the local admin surface", async () => {
     const { createAdminService } = await import("../src/admin/service.js");
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await pairedAccount(core, "acct_admin");
     const service = createAdminService({ core, hostVersion: "2026.7.1" });
 

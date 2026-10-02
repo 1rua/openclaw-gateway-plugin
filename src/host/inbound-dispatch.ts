@@ -1,4 +1,5 @@
 import type { GatewayAccount } from "../core/gateway-core.js";
+import { createHash } from "node:crypto";
 import type { AgentMessageFailureCode, GatewayMessage } from "../core/conversation-port.js";
 
 export const OPENCLAW_CHANNEL_ID = "open-android-intelligence-gateway";
@@ -63,6 +64,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
   const materialized: Array<Readonly<{ path: string; cleanup: () => void }>> = [];
   let adopted = false;
   let delivered = false;
+  let replyDeliveryFailed = false;
   const markAgentDelivered = (): void => {
     if (delivered) return;
     adopted = true;
@@ -197,11 +199,26 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
             },
             dispatchReplyWithBufferedBlockDispatcher: channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher,
             delivery: {
-              deliver: async (): Promise<void> => {
-                // OpenClaw persists the response in its own session; Gateway v2.1
-                // currently transports message status only, so do not copy reply
-                // bodies back into transient Gateway storage or diagnostics.
+              deliver: async (payload?: Readonly<Record<string, unknown>>): Promise<void> => {
+                try {
+                const text = payload?.["text"];
+                if (typeof text === "string") {
+                  const messageId = `msg_${createHash("sha256").update(JSON.stringify([message.messageId, text])).digest("hex").slice(0, 40)}`;
+                  account.events.append({
+                    eventType: "conversation.message.completed",
+                    correlationId: message.messageId,
+                    payload: { conversationId: message.conversationId, messageId, sender: "assistant", parts: [{ type: "text", text }], text, timestamp: Date.now(), revision: 1 },
+                  });
+                } else if (payload !== undefined && Object.keys(payload).length > 0) {
+                  // Media-only replies need the host attachment port. A reply
+                  // we cannot deliver must never be reported as completed.
+                  throw new Error("AGENT_REPLY_UNSUPPORTED");
+                }
                 log?.info?.(`Open Android inbound Agent turn completed: messageId=${String(gatewayMessage["messageId"])}`);
+                } catch (error) {
+                  replyDeliveryFailed = true;
+                  throw error;
+                }
               },
             },
           });
@@ -214,6 +231,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
       if (/media|attachment/iu.test(reason)) throw new Error("AGENT_MEDIA_REJECTED");
       throw new Error("AGENT_UNAVAILABLE");
     }
+    if (replyDeliveryFailed) throw new Error("AGENT_UNAVAILABLE");
     if (!delivered) {
       markAgentDelivered();
     }

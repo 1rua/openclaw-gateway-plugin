@@ -22,6 +22,7 @@ export class AuditStore {
   constructor(private readonly store: GatewayAccountStore) {}
 
   append(record: AuditRecord): void {
+    this.purge(new Date(record.occurredAt));
     this.store.database
       .prepare(`
         INSERT INTO audit_events(event_type, actor_json, subject_json, correlation_id, occurred_at)
@@ -34,6 +35,14 @@ export class AuditStore {
         record.correlationId,
         record.occurredAt,
       );
+  }
+
+  purge(now = new Date(), limit = 1000): number {
+    const cutoff = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+    const result = this.store.database.prepare(`DELETE FROM audit_events WHERE audit_id IN
+      (SELECT audit_id FROM audit_events WHERE occurred_at < ? ORDER BY audit_id LIMIT ?)`)
+      .run(cutoff, limit) as { changes: number };
+    return Number(result.changes);
   }
 
   list(): AuditRecord[] {

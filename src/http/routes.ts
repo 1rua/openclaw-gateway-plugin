@@ -453,7 +453,9 @@ const streamGatewayEvents = async (
     const pending = new Map<number, Readonly<{ eventId: string; eventType: string; correlationId: string; occurredAt: string; payload: Readonly<Record<string, unknown>>; expiresAt: string; sequence: number }>>();
     let wake: (() => void) | undefined;
     let closed = false;
+    const authorized = (): boolean => services.core.isEventSessionActive?.(verifiedRequest.context!) === true;
     const unsubscribe = account.events.subscribe((event) => {
+      if (!authorized()) { closed = true; wake?.(); return; }
       pending.set(event.sequence, event);
       wake?.();
     });
@@ -463,7 +465,9 @@ const streamGatewayEvents = async (
     };
     request.once("aborted", close);
     response.once("close", close);
+    const lifecycleTimer = setInterval(() => { if (!authorized()) close(); }, 1_000);
     try {
+      if (!authorized()) return rawFailureResponse({ verifiedRequest }, "SESSION_REVOKED");
       const replay = account.events.readAfterWithSequence(cursor);
       let sequence = account.events.sequenceAfter(cursor);
       response.statusCode = 200;
@@ -473,12 +477,13 @@ const streamGatewayEvents = async (
       response.setHeader("x-accel-buffering", "no");
       response.flushHeaders?.();
       for (const event of replay) {
-        if (closed) break;
+        if (closed || !authorized()) break;
         await writeSseEvent(response, event);
         sequence = event.sequence;
         pending.delete(event.sequence);
       }
       while (!closed && !response.destroyed && !response.writableEnded) {
+        if (!authorized()) break;
         const next = [...pending.values()].sort((left, right) => left.sequence - right.sequence);
         const deliver = next.find((event) => event.sequence > sequence);
         if (deliver !== undefined) {
@@ -500,15 +505,16 @@ const streamGatewayEvents = async (
           wake = () => finish(false);
           if (closed || pending.size > 0) finish(false);
         });
-        if (closed) break;
+        if (closed || !authorized()) break;
         if (heartbeat) await writeSseChunk(response, ": ping\n\n");
       }
       return null;
     } finally {
+      clearInterval(lifecycleTimer);
       unsubscribe();
       request.removeListener("aborted", close);
       response.removeListener("close", close);
-      if (!response.destroyed && !response.writableEnded) response.end();
+      if (response.headersSent && !response.destroyed && !response.writableEnded) response.end();
     }
   } catch (error) {
     if (response.headersSent) return null;

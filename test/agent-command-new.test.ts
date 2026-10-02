@@ -21,7 +21,7 @@ const context = (requestId: string, correlationId: string) => ({
 describe("OpenClaw and the `/new` command entry", () => {
   it("accepts `/new` as ordinary text and never pretends to create a conversation", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     const source = account.conversations.create({
       clientConversationId: "conv_client_source",

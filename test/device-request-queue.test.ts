@@ -11,7 +11,7 @@ const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intellig
 describe("OpenClaw Gateway device request queue", () => {
   it("binds claim/result to account, device, generation and grant revision across recovery", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
 
@@ -26,7 +26,7 @@ describe("OpenClaw Gateway device request queue", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: { limit: 1 },
+      parameters: { query: "fixture query" },
       correlationId: "cor_device_read",
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
@@ -41,7 +41,7 @@ describe("OpenClaw Gateway device request queue", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_device_write",
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
@@ -56,7 +56,7 @@ describe("OpenClaw Gateway device request queue", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_device_high",
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
@@ -160,7 +160,7 @@ describe("OpenClaw Gateway device request queue", () => {
       now: new Date("2026-08-24T12:05:00.000Z"),
     });
     alice.close();
-    const reopened = await createGatewayCore({ storageRoot }).openGatewayAccount("acct_alice");
+    const reopened = await createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot }).openGatewayAccount("acct_alice");
     reopened.deviceRequests.recoverExpired(new Date("2026-08-24T12:16:00.000Z"));
     expect(reopened.deviceRequests.get("device_req_write").state).toBe("outcome_unknown");
 
@@ -169,7 +169,7 @@ describe("OpenClaw Gateway device request queue", () => {
   });
 
   it("expires pending and claimed requests at claim/result entry without relying on manual recovery", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const alice = await core.openGatewayAccount("acct_alice");
 
     alice.deviceRequests.enqueue({
@@ -183,7 +183,7 @@ describe("OpenClaw Gateway device request queue", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_expired_pending",
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
@@ -210,7 +210,7 @@ describe("OpenClaw Gateway device request queue", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_claimed",
       now: new Date("2026-08-27T01:00:00.000Z"),
     });

@@ -14,7 +14,7 @@ const createGatewayCore = (options: Parameters<typeof buildGatewayCore>[0] = {})
 
 describe("OpenClaw Gateway attachment lifecycle", () => {
   it("keeps staged bytes account-local and removes them on ACK and TTL expiry", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
     const body = new TextEncoder().encode("short lived content");
@@ -60,7 +60,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
 
   it("keeps a rolled-back handle upload discoverable and TTL-cleanable", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     const body = new TextEncoder().encode("upload must remain auditable");
     const attachment = account.attachments.create({
@@ -123,7 +123,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
 
   it("keeps the unique staged file when digest-failure commit rolls back and lets TTL clean it", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     const body = new TextEncoder().encode("digest failure body");
     const attachment = account.attachments.create({
@@ -186,7 +186,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
 
   it("keeps a digest-failed attachment referenceable until explicit cleanup", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     const body = new TextEncoder().encode("digest failure must be cleaned");
     const attachment = account.attachments.create({
@@ -239,7 +239,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
 
   it("protects a recoverable staged file when reconciliation fails and retries on the next scan", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     const body = new TextEncoder().encode("reconciliation must fail closed");
     const attachment = account.attachments.create({
@@ -293,7 +293,7 @@ describe("OpenClaw Gateway attachment lifecycle", () => {
   });
 
   it("reports the number of orphan stage files actually deleted", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const account = await core.openGatewayAccount("acct_alice");
     const orphanPath = join(account.paths.attachments, "att_orphan_round3.stage");
     writeFileSync(orphanPath, new TextEncoder().encode("orphan"), { mode: 0o600 });

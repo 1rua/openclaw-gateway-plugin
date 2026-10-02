@@ -55,7 +55,7 @@ describe("OpenClaw Gateway storage root", () => {
     const host = mkdtempSync(join(tmpdir(), "openclaw-host-"));
     const configured = mkdtempSync(join(tmpdir(), "openclaw-env-"));
     setEnvironment(configured);
-    const core = createGatewayCore({ storageRoot: host });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: host });
 
     const account = await core.openGatewayAccount("acct_alice");
     account.close();

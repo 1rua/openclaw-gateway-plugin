@@ -32,7 +32,7 @@ const pairedDevice = async (core: GatewayCore, accountId: string = ACCOUNT_ID): 
       installation: {
         installationId: "install_grant_events",
         displayName: "Grant phone",
-        devicePublicKey: "GrantDevicePublicKey",
+        devicePublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       },
       correlationId: "cor_login",
     });
@@ -82,7 +82,7 @@ const auditOfType = async (
 
 describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   it("bumps the grant revision monotonically and persists it across reopen", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId } = await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -111,7 +111,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("answers PAIRING_REQUIRED when the device has no pairing to bump", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -125,7 +125,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("appends a schema-valid pairing.grant.changed event with the exact payload shape", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId } = await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -156,7 +156,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("answers GRANT_STALE to a claim carrying the pre-bump revision", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId } = await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -199,7 +199,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("writes the audit entry for the bump in the same commit", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId } = await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -217,7 +217,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("leaves no revision, no audit and no event when the commit fails", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId } = await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -247,7 +247,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   it("exposes grant.bump as the management-plane entry, gated like pairing.revoke", async () => {
     const { createAdminService } = await import("../src/admin/service.js");
     const { bindAdminService, runAdminCommand } = await import("../src/admin/cli.js");
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId } = await pairedDevice(core);
     const service = createAdminService({ core, hostVersion: "2026.7.1" });
     const readOnly = createAdminService({ core, hostVersion: "2026.8.0" });
@@ -311,7 +311,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("appends a schema-valid session.revoked event when a session is revoked", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const { deviceId, sessionId, accessToken } = await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);
@@ -344,7 +344,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
   });
 
   it("keeps the audit line but appends no event for a session that does not exist", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     await pairedDevice(core);
 
     const account = await core.openGatewayAccount(ACCOUNT_ID);

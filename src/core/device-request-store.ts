@@ -8,7 +8,7 @@ import {
 } from "../../../../gateway-contract/src/state-machines.js";
 import type { GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";
-import { EventStore } from "./event-store.js";
+import { EventStore, validateDeviceRequest } from "./event-store.js";
 
 export type ClaimReceipt = Readonly<{
   claimId: string;
@@ -53,12 +53,21 @@ export class DeviceRequestStore {
     provider: Readonly<Record<string, unknown>>;
     parameters: Readonly<Record<string, unknown>>;
     correlationId: string;
+    requiresForegroundConfirmation?: boolean;
     now?: Date;
   }>): DeviceRequestRecord {
     const now = input.now ?? new Date();
     const ttlSeconds = maximumDeviceRequestQueueSeconds(input.risk);
     const state: DeviceRequestState = ttlSeconds === 0 ? "expired" : "pending";
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
+    const payload = {
+      requestId: input.requestId, capability: input.capability, provider: input.provider,
+      parameters: input.parameters, risk: input.risk, grantRevision: input.grantRevision,
+      createdAt: now.toISOString(), expiresAt,
+      requiresForegroundConfirmation: input.requiresForegroundConfirmation ?? false,
+    };
+    if (!validateDeviceRequest(payload)) throw new Error("SCHEMA_INVALID");
+    return this.store.transaction(() => {
     this.store.database
       .prepare(`
         INSERT INTO device_requests(
@@ -76,7 +85,7 @@ export class DeviceRequestStore {
         state,
         JSON.stringify(input.capability),
         JSON.stringify(input.provider),
-        JSON.stringify(input.parameters),
+        state === "pending" ? this.store.sealJson(input.parameters, `device-request:${input.requestId}`) : "",
         now.toISOString(),
         expiresAt,
       );
@@ -84,11 +93,12 @@ export class DeviceRequestStore {
       this.events.append({
         eventType: "device.requested",
         correlationId: input.correlationId,
-        payload: { requestId: input.requestId, risk: input.risk, grantRevision: input.grantRevision },
+        payload,
         now,
       });
     }
     return this.get(input.requestId);
+    });
   }
 
   claim(input: Readonly<{
@@ -218,8 +228,8 @@ export class DeviceRequestStore {
         ? nextDeviceRequestState(state, "result_outcome_unknown")
         : nextDeviceRequestState(state, event);
       this.store.database
-        .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
-        .run(next, input.requestId);
+        .prepare("UPDATE device_requests SET state = ?, parameters_json = '', result_json = ? WHERE request_id = ?")
+        .run(next, this.store.sealJson(input.result, `device-result:${input.requestId}:${input.claimId}`), input.requestId);
       this.audit.append({
         eventType: "device.request.result",
         actor: { accountId: this.accountId, deviceId: input.deviceId },
@@ -280,7 +290,7 @@ export class DeviceRequestStore {
         const requestId = String(row.request_id);
         const state = String(row.state) as DeviceRequestState;
         this.store.database
-          .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
+          .prepare("UPDATE device_requests SET state = ?, parameters_json = '' WHERE request_id = ?")
           .run(nextDeviceRequestState(state, "cancel"), requestId);
         this.events.append({
           eventType: "device.request.cancel.requested",
@@ -307,14 +317,14 @@ export class DeviceRequestStore {
   recoverExpired(now = new Date()): number {
     let recovered = 0;
     const rows = this.store.database
-      .prepare("SELECT * FROM device_requests WHERE expires_at <= ? AND state IN ('pending', 'claimed', 'cancel_requested')")
+      .prepare("SELECT * FROM device_requests WHERE expires_at <= ? AND state IN ('pending', 'claimed', 'cancel_requested') ORDER BY expires_at LIMIT 1000")
       .all(now.toISOString()) as Record<string, unknown>[];
     for (const row of rows) {
       this.store.transaction(() => {
         const state = String(row.state) as DeviceRequestState;
         const event = state === "pending" ? "expire" : "recover_outcome_unknown";
         this.store.database
-          .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
+          .prepare("UPDATE device_requests SET state = ?, parameters_json = '' WHERE request_id = ?")
           .run(nextDeviceRequestState(state, event), String(row.request_id));
         recovered += 1;
       });
@@ -324,6 +334,32 @@ export class DeviceRequestStore {
 
   get(requestId: string): DeviceRequestRecord {
     return this.mapRequest(this.getRow(requestId));
+  }
+
+  /** Host adoption seam. Results are not audit content and must be explicitly ACKed. */
+  readResult(requestId: string, claimId: string, now = new Date()): Readonly<Record<string, unknown>> | undefined {
+    const request = this.getRow(requestId);
+    const receipt = this.store.database.prepare("SELECT 1 FROM claim_receipts WHERE request_id = ? AND claim_id = ?").get(requestId, claimId);
+    if (receipt === undefined) throw new Error("OUTCOME_UNKNOWN");
+    if (Date.parse(String(request.expires_at)) <= now.getTime()) {
+      this.store.database.prepare("UPDATE device_requests SET result_json = '', parameters_json = '' WHERE request_id = ?").run(requestId);
+      return undefined;
+    }
+    if (!request.result_json) return undefined;
+    return this.store.openJson(String(request.result_json), `device-result:${requestId}:${claimId}`) as Readonly<Record<string, unknown>>;
+  }
+
+  acknowledgeResult(requestId: string, claimId: string): void {
+    const receipt = this.store.database.prepare("SELECT 1 FROM claim_receipts WHERE request_id = ? AND claim_id = ?").get(requestId, claimId);
+    if (receipt === undefined) throw new Error("OUTCOME_UNKNOWN");
+    this.store.database.prepare("UPDATE device_requests SET result_json = '' WHERE request_id = ?").run(requestId);
+  }
+
+  purgeTerminalPayloads(now = new Date()): number {
+    const result = this.store.database.prepare(`UPDATE device_requests SET result_json = '', parameters_json = '' WHERE request_id IN
+      (SELECT request_id FROM device_requests WHERE expires_at <= ? AND (result_json != '' OR parameters_json != '') LIMIT 1000)`)
+      .run(now.toISOString()) as { changes: number };
+    return Number(result.changes);
   }
 
   private getRow(requestId: string): Record<string, unknown> {
@@ -355,7 +391,7 @@ export class DeviceRequestStore {
     if (state !== "pending" && state !== "claimed" && state !== "cancel_requested") return false;
     const event = state === "pending" ? "expire" : "recover_outcome_unknown";
     this.store.database
-      .prepare("UPDATE device_requests SET state = ? WHERE request_id = ?")
+      .prepare("UPDATE device_requests SET state = ?, parameters_json = '' WHERE request_id = ?")
       .run(nextDeviceRequestState(state, event), String(row.request_id));
     return true;
   }

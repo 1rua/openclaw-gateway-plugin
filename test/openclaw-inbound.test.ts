@@ -21,6 +21,36 @@ const normalizeMediaFacts = (
 }));
 
 describe("OpenClaw native inbound media delivery", () => {
+  it("does not report completion when the SDK swallows a failed reply callback", async () => {
+    const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x35) });
+    const account = await core.openGatewayAccount("acct_reply_failure");
+    const conversation = account.conversations.create({ clientConversationId: "client_reply_failure", correlationId: "cor_conv" });
+    const accepted = account.conversations.acceptMessage({ conversationId: conversation.conversationId, clientMessageId: "client_reply_message",
+      text: "Reply with an image", attachmentIds: [], deviceId: "dev_1", requestId: "req_1", correlationId: "cor_msg" });
+    const message = account.conversations.claimNextMessage()!;
+    const runtime: OpenClawInboundRuntime = {
+      inbound: {
+        toInboundMediaFacts: normalizeMediaFacts, buildContext: facts => facts,
+        run: async params => {
+          const input = params as Record<string, any>;
+          const normalized = await input.adapter.ingest(input.raw);
+          const preflight = await input.adapter.preflight(normalized);
+          const turn = await input.adapter.resolveTurn(normalized, {}, preflight);
+          await input.onTurnAdopted();
+          await expect(turn.delivery.deliver({ mediaUrl: "https://media.example/reply.png" })).rejects.toThrow("AGENT_REPLY_UNSUPPORTED");
+          return { dispatched: true };
+        },
+      },
+      routing: { resolveAgentRoute: () => ({ agentId: "main", accountId: "default", sessionKey: "agent:main:reply-failure" }) },
+      session: { resolveStorePath: () => "/sessions", recordInboundSession: async () => undefined },
+      reply: { dispatchReplyWithBufferedBlockDispatcher: () => undefined },
+    };
+    await dispatchGatewayMessageToOpenClaw({ account, message, channelRuntime: runtime, cfg: {}, gatewayAccountId: account.accountId, channelAccountId: "default" });
+    expect(account.conversations.getMessage(accepted.messageId)).toMatchObject({ status: "failed", errorCode: "AGENT_UNAVAILABLE" });
+    expect(account.events.readAfter(null).some(event => event.eventType === "conversation.message.completed")).toBe(false);
+    account.close();
+  });
+
   it("dispatches empty-body media-only messages with ordered readable media facts and acknowledges adoption", async () => {
     const core = createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x35) });
     const account = await core.openGatewayAccount("acct_inbound");
@@ -83,7 +113,7 @@ describe("OpenClaw native inbound media delivery", () => {
           await (turn.recordInboundSession as () => Promise<void>)();
           seen.persisted = true;
           await (input.onTurnAdopted as () => Promise<void>)();
-          await ((turn.delivery as { deliver: () => Promise<void> }).deliver)();
+          await ((turn.delivery as { deliver: (payload: Record<string, unknown>) => Promise<void> }).deliver)({ text: "The Agent actually replied" });
           seen.replyDispatch = true;
           return { dispatched: true };
         },
@@ -115,6 +145,9 @@ describe("OpenClaw native inbound media delivery", () => {
     expect(seen.bytes).toEqual(content);
     expect(seen.persisted).toBe(true);
     expect(seen.replyDispatch).toBe(true);
+    const replies = account.events.readAfter(null).filter(event => event.eventType === "conversation.message.completed" && event.payload.sender === "assistant");
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.payload).toMatchObject({ conversationId: conversation.conversationId, text: "The Agent actually replied", parts: [{ type: "text", text: "The Agent actually replied" }] });
     expect(account.conversations.getMessage(accepted.messageId)).toMatchObject({ status: "completed", revision: 2 });
     expect(account.attachments.get(attachmentIds[0]!).hasStagedBytes).toBe(false);
     expect(account.attachments.get(attachmentIds[1]!).hasStagedBytes).toBe(false);

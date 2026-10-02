@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
 
 /**
  * Account password digests for the OpenClaw Gateway.
@@ -84,4 +84,24 @@ export const verifyPassword = (password: string, encoded: string): boolean => {
     return false;
   }
   return candidate.byteLength === expected.byteLength && timingSafeEqual(candidate, expected);
+};
+
+/** Network logins use libuv's bounded worker pool, never synchronous scrypt. */
+export const verifyPasswordAsync = async (password: string, encoded: string): Promise<boolean> => {
+  const parts = encoded.split("$");
+  if (parts.length !== 6 || parts[0] !== ALGORITHM) return false;
+  const cost = Number(parts[1]), block = Number(parts[2]), parallel = Number(parts[3]);
+  // Accept only the interactive costs this deployment writes. A corrupted
+  // digest must not turn one admitted login into an unbounded allocation.
+  if (cost !== COST_N || block !== BLOCK_R || parallel !== PARALLEL_P) return false;
+  try {
+    const salt = decode(parts[4]!), expected = decode(parts[5]!);
+    if (salt.byteLength !== SALT_BYTES || expected.byteLength !== KEY_BYTES) return false;
+    const bytes = passwordBytes(password);
+    const candidate = await new Promise<Buffer>((resolve, reject) => {
+      scrypt(bytes, salt, KEY_BYTES, { N: cost, r: block, p: parallel, maxmem: 132 * cost * block },
+        (error, key) => error ? reject(error) : resolve(key));
+    });
+    return timingSafeEqual(candidate, expected);
+  } catch { return false; }
 };

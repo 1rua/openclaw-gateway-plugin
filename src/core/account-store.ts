@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
 
 import { type AccountPaths, ensureAccountDirectories } from "./account-paths.js";
+import { AccountPayloadCipher } from "./payload-cipher.js";
 
 export type TransactionHooks = Readonly<{
   onCommit?: () => void;
@@ -24,6 +25,10 @@ export type GatewayAccountStore = Readonly<{
   subscribeCommittedEvents: (listener: (event: CommittedEventNotification) => void) => () => void;
   publishCommittedEvent: (event: CommittedEventNotification) => void;
   close: () => void;
+  sealString: (value: string, purpose: string) => string;
+  openString: (value: string, purpose: string) => string;
+  sealJson: (value: unknown, purpose: string) => string;
+  openJson: (value: string, purpose: string) => unknown;
   /**
    * Test seam for the commit-uncertainty path: setting `value` makes the next
    * `transaction` commit fail with `OUTCOME_UNKNOWN` — the code a caller gets
@@ -58,6 +63,11 @@ const migrate = (database: DatabaseSync): void => {
       replaced_by_hash TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS request_nonces (
+      device_id TEXT NOT NULL, nonce_hash TEXT NOT NULL, expires_at TEXT NOT NULL,
+      PRIMARY KEY (device_id, nonce_hash)
+    );
+    CREATE INDEX IF NOT EXISTS request_nonces_expiry ON request_nonces(expires_at);
     CREATE TABLE IF NOT EXISTS access_sessions (
       session_id TEXT PRIMARY KEY NOT NULL,
       installation_id TEXT NOT NULL,
@@ -283,7 +293,7 @@ const ensureMetadata = (database: DatabaseSync, key: string, value: string): voi
     .run(key, value);
 };
 
-export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
+export const openAccountStore = (paths: AccountPaths, payload?: Readonly<{ accountId: string; masterKey?: Uint8Array; reference: string }>): GatewayAccountStore => {
   ensureAccountDirectories(paths);
   const database = new DatabaseSync(paths.database);
   let transactionDepth = 0;
@@ -313,6 +323,7 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   ensureColumn(database, "attachments", "uploaded_size_bytes", "INTEGER");
   ensureColumn(database, "attachments", "uploaded_sha256", "TEXT");
   ensureColumn(database, "messages", "body", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(database, "device_requests", "result_json", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(database, "messages", "status", "TEXT NOT NULL DEFAULT 'queued'");
   ensureColumn(database, "messages", "status_revision", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "messages", "error_code", "TEXT");
@@ -334,10 +345,62 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
   ensureMetadata(database, "pairing_generation", "1");
   ensureMetadata(database, "event_sequence", String((database.prepare("SELECT COALESCE(MAX(event_sequence), 0) AS sequence FROM events")
     .get() as { sequence: number }).sequence));
+  database.exec("PRAGMA secure_delete = ON");
+  const cipher = new AccountPayloadCipher(payload?.masterKey, payload?.accountId ?? "");
+  const format = database.prepare("SELECT value FROM account_metadata WHERE key = 'payload_storage_format'").get() as { value: string } | undefined;
+  if (format !== undefined && format.value !== "1") { database.close(); cipher.close(); throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE"); }
+  if (cipher.available && format === undefined) {
+    const previous = database.prepare("SELECT value FROM account_metadata WHERE key = 'master_key_ref'").get() as { value: string };
+    if (previous.value !== "unconfigured" && !previous.value.startsWith("host-secret:") && previous.value !== payload!.reference) {
+      database.close(); cipher.close(); throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+    }
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [table, idColumn, column, purpose] of [
+        ["messages", "message_id", "body", "message"], ["events", "event_id", "payload_json", "event"],
+        ["device_requests", "request_id", "parameters_json", "device-request"],
+      ] as const) {
+        for (const row of database.prepare(`SELECT ${idColumn} AS id, ${column} AS value FROM ${table}`).all() as Array<{ id: string; value: string }>) {
+          if (row.value !== "") database.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${idColumn} = ?`).run(cipher.seal(row.value, `${purpose}:${row.id}`), row.id);
+        }
+      }
+      for (const row of database.prepare("SELECT device_id, request_id, outcome_json FROM idempotency_ledger").all() as Array<{ device_id: string; request_id: string; outcome_json: string }>) {
+        database.prepare("UPDATE idempotency_ledger SET outcome_json = ? WHERE device_id = ? AND request_id = ?")
+          .run(cipher.seal(row.outcome_json, `idempotency:${row.device_id}:${row.request_id}`), row.device_id, row.request_id);
+      }
+      database.prepare("INSERT INTO account_metadata(key,value) VALUES ('payload_storage_format','1')").run();
+      database.prepare("INSERT INTO account_metadata(key,value) VALUES ('payload_scrub_pending','1')").run();
+      database.prepare("UPDATE account_metadata SET value = ? WHERE key = 'master_key_ref'").run(payload!.reference);
+      database.exec("COMMIT");
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch {}
+      database.close(); cipher.close(); throw error;
+    }
+  }
+  if (cipher.available && database.prepare("SELECT 1 FROM account_metadata WHERE key = 'payload_scrub_pending'").get() !== undefined) {
+    try {
+      const reference = database.prepare("SELECT value FROM account_metadata WHERE key = 'master_key_ref'").get() as { value: string };
+      if (reference.value !== payload!.reference) throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+      const checkpoint = () => {
+        const result = database.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number };
+        if (result.busy !== 0) throw new Error("PAYLOAD_MIGRATION_BUSY");
+      };
+      checkpoint();
+      database.exec("VACUUM");
+      checkpoint();
+      database.prepare("DELETE FROM account_metadata WHERE key = 'payload_scrub_pending'").run();
+    } catch (error) {
+      database.close(); cipher.close(); throw error;
+    }
+  }
   const hubKey = eventHubKey(paths.database);
   const failNextCommit = { value: false };
   return Object.freeze({
     database,
+    sealString: (value, purpose) => cipher.seal(value, purpose),
+    openString: (value, purpose) => cipher.open(value, purpose),
+    sealJson: (value, purpose) => cipher.seal(JSON.stringify(value), purpose),
+    openJson: (value, purpose) => JSON.parse(cipher.open(value, purpose)) as unknown,
     failNextCommit,
     subscribeCommittedEvents: (listener) => {
       let hub = committedEventHubs.get(hubKey);
@@ -401,6 +464,6 @@ export const openAccountStore = (paths: AccountPaths): GatewayAccountStore => {
         throw error;
       }
     },
-    close: () => database.close(),
+    close: () => { cipher.close(); database.close(); },
   });
 };

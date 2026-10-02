@@ -35,6 +35,7 @@ export type RevokePairingInput = Readonly<{
 
 export type AdminCommand =
   | Readonly<{ command: "account.create"; input: CreateAccountInput }>
+  | Readonly<{ command: "account.reset-password"; input: CreateAccountInput }>
   | Readonly<{ command: "admin.status" }>
   | Readonly<{ command: "account.delete"; accountId: string; localConfirmation?: boolean }>
   | Readonly<{ command: "pairing.revoke"; accountId: string; deviceId: string; localConfirmation?: boolean }>
@@ -106,13 +107,33 @@ export class AdminService {
     try {
       const account = await this.core.openGatewayAccount(input.accountId);
       try {
-        account.credentials.setPassword(input.password);
+        account.credentials.createPassword(input.password);
       } finally {
         account.close();
       }
       return success("account.create", false, { accountId: input.accountId });
     } catch (error) {
       return failure("account.create", false, errorCode(error));
+    }
+  }
+
+  async resetPassword(input: CreateAccountInput): Promise<AdminResult> {
+    const operation = "account.reset-password";
+    if (this.readOnly) return failure(operation, true, "HOST_INCOMPATIBLE");
+    if (input.localConfirmation !== true) return failure(operation, false, "LOCAL_CONFIRMATION_REQUIRED");
+    if (!validAccountId(input.accountId)) return failure(operation, false, "SCHEMA_INVALID");
+    if (typeof input.password !== "string" || input.password.length === 0) return failure(operation, false, "PASSWORD_REQUIRED");
+    if (!this.core.accountExists(input.accountId)) return failure(operation, false, "ACCOUNT_NOT_FOUND");
+    let account: Awaited<ReturnType<GatewayCore["openGatewayAccount"]>> | undefined;
+    try {
+      account = await this.core.openGatewayAccount(input.accountId);
+      if (!account.credentials.hasPassword()) return failure(operation, false, "ACCOUNT_NOT_FOUND");
+      account.credentials.setPassword(input.password);
+      return success(operation, false, { accountId: input.accountId });
+    } catch (error) {
+      return failure(operation, false, errorCode(error));
+    } finally {
+      account?.close();
     }
   }
 
@@ -229,6 +250,8 @@ export class AdminService {
     switch (command.command) {
       case "account.create":
         return this.createAccount(command.input);
+      case "account.reset-password":
+        return this.resetPassword(command.input);
       case "account.delete":
         return this.deleteAccount(command);
       case "pairing.revoke":
@@ -264,6 +287,7 @@ export type AdminPanel = Readonly<{
   remotePort: null;
   readOnly: boolean;
   createAccount: (input: CreateAccountInput) => Promise<AdminResult>;
+  resetPassword: (input: CreateAccountInput) => Promise<AdminResult>;
   deleteAccount: (input: Readonly<{ accountId: string; localConfirmation?: boolean }>) => Promise<AdminResult>;
   revokePairing: (input: RevokePairingInput) => Promise<AdminResult>;
   grantBump: (input: RevokePairingInput) => Promise<AdminResult>;
@@ -277,6 +301,7 @@ export const createAdminPanel = (service: AdminService): AdminPanel => Object.fr
   remotePort: null,
   readOnly: service.readOnly,
   createAccount: (input) => service.createAccount(input),
+  resetPassword: (input) => service.resetPassword(input),
   deleteAccount: (input) => service.deleteAccount(input),
   revokePairing: (input) => service.revokePairing(input),
   grantBump: (input) => service.grantBump(input),

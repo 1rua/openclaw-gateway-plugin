@@ -139,7 +139,7 @@ export class ConversationPort {
           input.conversationId,
           input.clientMessageId,
           createdAt.toISOString(),
-          input.text,
+          this.store.sealString(input.text, `message:${messageId}`),
           JSON.stringify(input.attachmentIds),
           expiresAt,
         );
@@ -377,7 +377,7 @@ export class ConversationPort {
       messageId: String(row.message_id),
       conversationId: String(row.conversation_id),
       clientMessageId: String(row.client_message_id),
-      text: String(row.body),
+      text: row.body === "" ? "" : this.store.openString(String(row.body), `message:${row.message_id}`),
       createdAt: String(row.created_at),
       attachmentIds: Object.freeze(JSON.parse(String(row.attachment_ids_json)) as string[]),
       status: String(row.status) as GatewayMessage["status"],

@@ -29,7 +29,7 @@ describe("OpenClaw Gateway account isolation", () => {
   it("opens different accounts under separate file roots before any shared database exists", async () => {
     // The host names the data directory; `test/storage-root.test.ts` pins that no
     // directory is ever inferred from the shell's current directory.
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
 
@@ -43,7 +43,7 @@ describe("OpenClaw Gateway account isolation", () => {
   });
 
   it("does not share SSE cursors or conversation attachment references across account databases", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
 
@@ -83,7 +83,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("handles identity override, idempotency replay/conflict, expired idempotency and SSE cursor failures at the GatewayCore entry", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     const oldEvent = account.events.append({
       eventType: "gateway.notice",
@@ -149,7 +149,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("does not let a device result use body grantRevision instead of the verified context", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     account.deviceRequests.enqueue({
       requestId: "device_req_handle",
@@ -162,7 +162,7 @@ describe("OpenClaw Gateway account isolation", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_enqueue",
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
@@ -175,7 +175,7 @@ describe("OpenClaw Gateway account isolation", () => {
       idempotencyKey: "req_claim",
       now: new Date("2026-08-27T00:01:00.000Z"),
     });
-    const receipt = claim.data?.receipt as { claimId: string; grantRevision: number };
+    const receipt = claim.data as { claimId: string; grantRevision: number };
 
     await expect(core.handle({
       context: context({ requestId: "req_result", correlationId: "cor_result", grantRevision: 8 }),
@@ -193,7 +193,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("revalidates device claim and result bindings before returning an idempotent replay", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     account.deviceRequests.enqueue({
       requestId: "device_req_replay_binding",
@@ -206,7 +206,7 @@ describe("OpenClaw Gateway account isolation", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_enqueue_replay_binding",
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
@@ -220,7 +220,7 @@ describe("OpenClaw Gateway account isolation", () => {
       now: new Date("2026-08-27T00:01:00.000Z"),
     };
     const claim = await core.handle(claimRequest);
-    expect(claim.data?.receipt).toBeDefined();
+    expect(claim.data).toBeDefined();
     await expect(core.handle({
       ...claimRequest,
       context: { ...claimRequest.context, pairingGeneration: 5 },
@@ -230,7 +230,7 @@ describe("OpenClaw Gateway account isolation", () => {
       context: { ...claimRequest.context, grantRevision: 8 },
     })).resolves.toMatchObject({ error: { code: "GRANT_STALE" } });
 
-    const receipt = claim.data?.receipt as { claimId: string };
+    const receipt = claim.data as { claimId: string };
     const resultRequest = {
       context: context({ requestId: "req_replay_result", correlationId: "cor_replay_result", pairingGeneration: 4, grantRevision: 7 }),
       method: "POST" as const,
@@ -253,7 +253,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("uses the injected clock for claim expiration at the GatewayCore entry", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     account.deviceRequests.enqueue({
       requestId: "device_req_handle_expiry",
@@ -266,7 +266,7 @@ describe("OpenClaw Gateway account isolation", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_handle_expiry_enqueue",
       now: new Date("2030-01-01T00:00:00.000Z"),
     });
@@ -287,7 +287,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("replays a known terminal device result after the device request TTL", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     account.deviceRequests.enqueue({
       requestId: "device_req_terminal_replay",
@@ -300,7 +300,7 @@ describe("OpenClaw Gateway account isolation", () => {
         pluginId: "org.openandroidintelligence.sms",
         authorKeyId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
-      parameters: {},
+      parameters: { query: "fixture query" },
       correlationId: "cor_terminal_replay_enqueue",
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
@@ -313,7 +313,7 @@ describe("OpenClaw Gateway account isolation", () => {
       idempotencyKey: "req_terminal_claim",
       now: new Date("2026-08-27T00:01:00.000Z"),
     });
-    const receipt = claim.data?.receipt as { claimId: string };
+    const receipt = claim.data as { claimId: string };
     const resultRequest = {
       context: context({ requestId: "req_terminal_result", correlationId: "cor_terminal_result", pairingGeneration: 2, grantRevision: 3 }),
       method: "POST" as const,
@@ -337,7 +337,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("rolls back handle side effects when the idempotency ledger cannot persist the terminal outcome", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     account.store.database.exec(`
       CREATE TRIGGER fail_idempotency_insert
@@ -367,7 +367,7 @@ describe("OpenClaw Gateway account isolation", () => {
 
   it("rolls back business writes and does not ledger an unexpected work failure", async () => {
     const storageRoot = tempRoot();
-    const core = createGatewayCore({ storageRoot });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
     account.store.database.exec(`
       CREATE TRIGGER fail_conversation_audit

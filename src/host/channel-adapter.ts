@@ -1,4 +1,5 @@
 import { createGatewayCore, type GatewayCore } from "../core/gateway-core.js";
+import { createGatewayRequestVerifier } from "../http/request-verifier.js";
 import { dispatchGatewayMessageToOpenClaw, OPENCLAW_CHANNEL_ID, type OpenClawInboundRuntime, type OpenClawLog } from "./inbound-dispatch.js";
 import {
   createAdminCliRegistrar,
@@ -146,8 +147,16 @@ const startInboundWorker = (
         try {
           account = await core.openGatewayAccount(accountId);
           if (Date.now() >= (nextAttachmentSweepAt.get(accountId) ?? 0)) {
+            const now = new Date();
             account.attachments.expireDue();
             account.attachments.cleanup();
+            account.events.purgeExpired(now);
+            account.deviceRequests.recoverExpired(now);
+            account.deviceRequests.purgeTerminalPayloads(now);
+            account.audit.purge(now);
+            account.store.database.prepare(`DELETE FROM idempotency_ledger WHERE rowid IN
+              (SELECT rowid FROM idempotency_ledger WHERE expires_at <= ? LIMIT 1000)`).run(now.toISOString());
+            account.store.database.exec("PRAGMA wal_checkpoint(PASSIVE)");
             nextAttachmentSweepAt.set(accountId, Date.now() + 60_000);
           }
           const message = account.conversations.claimNextMessage();
@@ -259,6 +268,7 @@ export type OpenClawPluginApi = Readonly<{
   resolvePath?: (input: string) => string;
   gatewayCore?: GatewayCore;
   runtime?: Readonly<{
+    version?: string;
     dataDir?: string;
     gatewayCore?: GatewayCore;
     verifyRequest?: GatewayRequestVerifier;
@@ -281,6 +291,7 @@ export type ComposeGatewayServicesOptions = Readonly<{
   exposureMode?: ExposureMode;
   verifyRequest?: GatewayRequestVerifier;
   maxBodyBytes?: number;
+  tlsSpkiSha256?: string;
 }>;
 
 const exposureMode = (value: unknown): ExposureMode => {
@@ -290,13 +301,13 @@ const exposureMode = (value: unknown): ExposureMode => {
 
 export const composeGatewayServices = (options: ComposeGatewayServicesOptions = {}): GatewayServices => {
   const hostApi = options.hostApi ?? OPENCLAW_HOST_API;
-  const core = options.core ?? createGatewayCore({ storageRoot: options.storageRoot });
+  const core = options.core ?? createGatewayCore({ storageRoot: options.storageRoot, tlsSpkiSha256: options.tlsSpkiSha256 });
   const admin = createAdminService({ core, hostVersion: options.hostVersion, hostApi });
   const exposure = createGatewayExposure(options.exposureMode ?? "host-route", {
     core,
     hostVersion: options.hostVersion,
     hostApi,
-    verifyRequest: options.verifyRequest,
+    verifyRequest: options.verifyRequest ?? createGatewayRequestVerifier(core),
     maxBodyBytes: options.maxBodyBytes,
   });
   return Object.freeze({ core, admin, adminPanel: createAdminPanel(admin), exposure });
@@ -304,7 +315,7 @@ export const composeGatewayServices = (options: ComposeGatewayServicesOptions = 
 
 // OpenClaw's `api.version` is plugin metadata, not the host API version.
 // Only an explicit trusted host-version adapter may enable this integration.
-const apiHostVersion = (api: OpenClawPluginApi): string | undefined => api.hostVersion;
+const apiHostVersion = (api: OpenClawPluginApi): string | undefined => api.runtime?.version ?? api.hostVersion;
 
 const apiStorageRoot = (api: OpenClawPluginApi): string | undefined =>
   api.dataDir
@@ -344,6 +355,7 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
     exposureMode: apiExposureMode(api),
     verifyRequest: apiVerifier(api),
     maxBodyBytes: api.maxBodyBytes,
+    tlsSpkiSha256: typeof api.pluginConfig?.["tlsSpkiSha256"] === "string" ? api.pluginConfig["tlsSpkiSha256"] : undefined,
   });
   api.registerChannel(Object.freeze({
     plugin: createOpenAndroidIntelligenceChannel(services.core),

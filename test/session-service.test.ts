@@ -10,7 +10,7 @@ const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intellig
 
 describe("OpenClaw Gateway session service", () => {
   it("rotates refresh credentials and revokes a device when an old refresh credential is reused", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
 
@@ -22,7 +22,7 @@ describe("OpenClaw Gateway session service", () => {
       installation: {
         installationId: "install_same",
         displayName: "Alice phone",
-        devicePublicKey: "AliceDevicePublicKey",
+        devicePublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       },
       correlationId: "cor_login",
     });

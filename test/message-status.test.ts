@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createGatewayCore } from "../src/core/gateway-core.js";
 import { accountPaths } from "../src/core/account-paths.js";
@@ -15,6 +15,11 @@ const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes)
 const testCore = () => createGatewayCore({ storageRoot: tempRoot(), attachmentMasterKey: Buffer.alloc(32, 0x27) });
 
 describe("OpenClaw queued message persistence and status", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-23T00:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
   it("persists text and ordered attachment ids and appends queued, delivered and completed status events", async () => {
     const core = testCore();
     const account = await core.openGatewayAccount("acct_status");
@@ -184,7 +189,8 @@ describe("OpenClaw queued message persistence and status", () => {
     const migrated = account.store.database.prepare(`
       SELECT body, status, dispatchable FROM messages WHERE message_id = 'msg_legacy'
     `).get() as { body: string; status: string; dispatchable: number };
-    expect(migrated).toEqual({ body: "", status: "queued", dispatchable: 0 });
+    expect(migrated).toMatchObject({ status: "queued", dispatchable: 0 });
+    expect(migrated.body).toBe("");
     expect(account.conversations.claimNextMessage({ now: new Date("2026-09-25T00:00:00Z") })).toBeUndefined();
     expect(account.events.readAfter(null).filter((event) => event.eventType === "conversation.message.status")).toHaveLength(0);
     account.close();

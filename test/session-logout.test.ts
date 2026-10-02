@@ -26,7 +26,7 @@ const login = async (core: GatewayCore, accountId: string): Promise<LiveSession>
       installation: {
         installationId: "install_logout",
         displayName: "Logout phone",
-        devicePublicKey: "LogoutDevicePublicKey",
+        devicePublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       },
       correlationId: "cor_logout_login",
     });
@@ -83,7 +83,7 @@ const activeRefreshCount = async (core: GatewayCore, session: LiveSession): Prom
 
 describe("OpenClaw Gateway logout (contract §5.5 / §13)", () => {
   it("keeps the device key when revokeRefresh=true ends the login", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await login(core, "acct_logout");
 
     // Contract :796: logging out revokes the refresh credential and does *not*
@@ -96,7 +96,7 @@ describe("OpenClaw Gateway logout (contract §5.5 / §13)", () => {
   });
 
   it("revokes the device refresh credential when revokeRefresh=true ends the login", async () => {
-    const core = createGatewayCore({ storageRoot: tempRoot() });
+    const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const session = await login(core, "acct_logout");
 
     const response = await deleteCurrentSession(core, session, true);
