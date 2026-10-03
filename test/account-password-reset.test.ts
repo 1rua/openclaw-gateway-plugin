@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createGatewayCore } from "../src/core/gateway-core.js";
 import { createAdminPanel, createAdminService } from "../src/admin/service.js";
 import { bindAdminService, runAdminCommand } from "../src/admin/cli.js";
+import { SessionService } from "../src/core/session-service.js";
 
 const executeAdminCommand = (service: ReturnType<typeof createAdminService>, args: readonly string[]) => {
   bindAdminService(service);
@@ -26,6 +27,27 @@ const fixture = async () => {
 };
 
 describe("account create and password reset boundaries", () => {
+  for (const asynchronous of [false, true]) {
+    it(`fences a reset between verified credentials and ${asynchronous ? "async" : "sync"} issuance`, async () => {
+      const { core, account } = await fixture();
+      const resetting = await core.openGatewayAccount("alice");
+      try {
+        const sessions = new SessionService("alice", account.store, account.audit, account.events, account.credentials, input => {
+          const verified = account.credentials.verifyPassword(input.password);
+          resetting.credentials.setPassword("new password");
+          return verified;
+        });
+        const input = { username: "alice", password: "old password", installation: {
+          installationId: "install_racing", displayName: "Phone", devicePublicKey: "A".repeat(43),
+        }, correlationId: "cor_racing" };
+        if (asynchronous) await expect(sessions.createPasswordSessionAsync(input)).rejects.toThrow("AUTHENTICATION_FAILED");
+        else expect(() => sessions.createPasswordSession(input)).toThrow("AUTHENTICATION_FAILED");
+        expect(account.store.database.prepare("SELECT COUNT(*) AS n FROM refresh_credentials WHERE status = 'active'").get()!.n).toBe(0);
+        expect(account.store.database.prepare("SELECT COUNT(*) AS n FROM device_keys").get()!.n).toBe(0);
+        expect(account.sessions.createPasswordSession({ ...input, password: "new password" }).accessToken).toBeTruthy();
+      } finally { resetting.close(); account.close(); }
+    });
+  }
   it("rejects duplicate UI and CLI creation without changing password or refresh credentials", async () => {
     const { service, panel, account, login } = await fixture();
     try {

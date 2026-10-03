@@ -683,6 +683,7 @@ const createRoute = (
         target,
         ...(preAuthBody === undefined ? {} : { body: preAuthBody }),
         headers: flattenedHeaders(request.headers),
+        ...(request.socket?.remoteAddress === undefined ? {} : { remoteAddress: request.socket.remoteAddress }),
       });
     } else {
       if (services.verifyRequest === undefined) return authenticationRequiredResponse(emptyRequest);

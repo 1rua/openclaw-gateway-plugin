@@ -142,11 +142,11 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
     expect(grantEvents).toHaveLength(1);
     const event = grantEvents[0]!;
     expect(event.correlationId).toBe("cor_grant_event");
-    // Field-by-field: the required `grantRevision` and nothing else — the
+    // The notification identifies the affected device and its new revision; the
     // optional fields this host has no real values for (`pluginId`,
     // `authorKeyId`, `capabilityId`, `capabilityVersion`, and the signed-grant
     // `grantDigest` of the contract) are omitted rather than fabricated.
-    expect(event.payload).toEqual({ grantRevision: bumpedRevision });
+    expect(event.payload).toEqual({ deviceId, grantRevision: bumpedRevision });
     expect(validateGatewayValue("event.pairingGrantChangedPayload", event.payload).ok).toBe(true);
     expect(validateGatewayValue("event", {
       correlationId: event.correlationId,

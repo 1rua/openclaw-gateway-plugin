@@ -89,6 +89,8 @@ export type VerifiedGatewayRequest = Readonly<{
   target: string;
   body?: unknown;
   headers?: Readonly<Record<string, string>>;
+  /** Transport peer supplied by the host, never a forwarded header or body field. */
+  remoteAddress?: string;
   idempotencyKey?: string;
   lastEventId?: string;
   now?: Date;
@@ -535,12 +537,29 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   let passwordJobs = 0;
   let admissionWindow = 0;
   let negotiationCount = 0;
-  let passwordCount = 0;
+  const passwordAttempts = new Map<string, { window: number; count: number }>();
   const admit = (password: boolean, now: number) => {
     if (now >= admissionWindow + 60_000 || now < admissionWindow) {
-      admissionWindow = now; negotiationCount = 0; passwordCount = 0;
+      admissionWindow = now; negotiationCount = 0;
     }
-    if (password ? ++passwordCount > 30 || passwordJobs >= 2 : ++negotiationCount > 1000) throw new Error("RATE_LIMITED");
+    if (password ? passwordJobs >= 2 : ++negotiationCount > 1000) throw new Error("RATE_LIMITED");
+  };
+  const admitPassword = (request: VerifiedGatewayRequest, accountId: string, now: number) => {
+    admit(true, now); // Busy retries do not spend the caller's minute allowance.
+    for (const [key, entry] of passwordAttempts) {
+      if (now < entry.window || now >= entry.window + 60_000) passwordAttempts.delete(key);
+    }
+    const key = JSON.stringify([request.remoteAddress ?? "internal", accountId]);
+    const entry = passwordAttempts.get(key) ?? { window: now, count: 0 };
+    if (entry.count >= 30) throw new Error("RATE_LIMITED");
+    // The per-peer throttle is a bounded cache, not a deployment-wide lockout.
+    // Keep admitting new peers when full; the two expensive job slots remain
+    // the hard resource bound even when old throttle entries are evicted.
+    passwordAttempts.delete(key);
+    if (passwordAttempts.size >= 1000) passwordAttempts.delete(passwordAttempts.keys().next().value!);
+    entry.count += 1;
+    passwordAttempts.set(key, entry);
+    passwordJobs += 1;
   };
 
   const negotiationResponse = (
@@ -624,9 +643,6 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     if (request.method === "POST" && request.target === "/open-android-intelligence/v2/sessions/password") {
       let admitted = false;
       try {
-        admit(true, now.getTime());
-        passwordJobs += 1;
-        admitted = true;
         const body = bodyRecord(request.body);
         assertSchema("session.password", body);
         // Login must never be the act that creates an account.
@@ -643,6 +659,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         ) {
           return failure(request, "PROTOCOL_INCOMPATIBLE");
         }
+        admitPassword(request, accountId, now.getTime());
+        admitted = true;
         const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
         try {
           const bundle = await account.sessions.createPasswordSessionAsync({

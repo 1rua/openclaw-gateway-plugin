@@ -46,6 +46,13 @@ export class CredentialStore {
     return row !== undefined;
   }
 
+  /** Snapshot for the session-issuing transaction; never expose it on the wire. */
+  passwordDigest(): string | undefined {
+    const row = this.store.database.prepare("SELECT password_hash FROM account_credentials WHERE credential_id = ?")
+      .get(PASSWORD_CREDENTIAL_ID) as { password_hash: string } | undefined;
+    return row?.password_hash;
+  }
+
   verifyPassword(password: string): boolean {
     const row = this.store.database
       .prepare("SELECT password_hash FROM account_credentials WHERE credential_id = ?")

@@ -97,6 +97,7 @@ export class SessionService {
     if (!this.installationIsComplete(input.installation)) {
       throw new Error("AUTHENTICATION_FAILED");
     }
+    const credentialDigest = this.credentials.passwordDigest();
     const verified = this.credentialVerifier !== undefined
       ? this.credentialVerifier({
           accountId: this.accountId,
@@ -107,21 +108,25 @@ export class SessionService {
       : this.credentials.verifyPassword(input.password);
     if (verified !== true) throw new Error("AUTHENTICATION_FAILED");
 
-    return this.createVerifiedSession(input);
+    return this.createVerifiedSession(input, credentialDigest);
   }
 
   async createPasswordSessionAsync(input: Parameters<SessionService["createPasswordSession"]>[0]): Promise<SessionBundle> {
     if (!input.username?.trim() || !this.installationIsComplete(input.installation)) throw new Error("AUTHENTICATION_FAILED");
+    const credentialDigest = this.credentials.passwordDigest();
     const verified = this.credentialVerifier !== undefined
       ? this.credentialVerifier({ accountId: this.accountId, username: input.username, password: input.password, installation: input.installation })
       : await this.credentials.verifyPasswordAsync(input.password);
     if (verified !== true) throw new Error("AUTHENTICATION_FAILED");
-    return this.createVerifiedSession(input);
+    return this.createVerifiedSession(input, credentialDigest);
   }
 
-  private createVerifiedSession(input: Parameters<SessionService["createPasswordSession"]>[0]): SessionBundle {
+  private createVerifiedSession(input: Parameters<SessionService["createPasswordSession"]>[0], credentialDigest: string | undefined): SessionBundle {
 
     return this.store.transaction(() => {
+      // Reset and issuance serialize on this write transaction. A verifier that
+      // completed against an older credential must not create a new refresh.
+      if (this.credentials.passwordDigest() !== credentialDigest) throw new Error("AUTHENTICATION_FAILED");
       const bundle = this.issue(input.installation.installationId, `dev_${randomUUID()}`, input.now);
       this.registerDeviceKey(bundle.deviceId, input.installation, input.now);
       this.audit.append({

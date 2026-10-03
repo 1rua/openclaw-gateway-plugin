@@ -96,7 +96,7 @@ export class PairingService {
       this.events.append({
         eventType: "pairing.grant.changed",
         correlationId: input.correlationId,
-        payload: { grantRevision: nextRevision },
+        payload: { deviceId: input.deviceId, grantRevision: nextRevision },
         now,
       });
       this.audit.append({
