@@ -121,7 +121,18 @@ export class SessionService {
     return this.createVerifiedSession(input, credentialDigest);
   }
 
-  private createVerifiedSession(input: Parameters<SessionService["createPasswordSession"]>[0], credentialDigest: string | undefined): SessionBundle {
+  createInviteSession(installation:LoginInstallation,correlationId:string,now=new Date()):SessionBundle {
+    if (!this.installationIsComplete(installation)) throw new Error("AUTHENTICATION_FAILED");
+    return this.createVerifiedSession({username:this.accountId,password:"",installation,correlationId,now},this.credentials.passwordDigest(),"account-invitation");
+  }
+
+  createDeviceSession(installationId:string,deviceId:string,correlationId:string,now=new Date()):SessionBundle {
+    const bundle=this.issue(installationId,deviceId,now);
+    this.audit.append({eventType:"session.device.created",actor:{accountId:this.accountId,deviceId,installationId},subject:{method:"device-key"},correlationId,occurredAt:nowIso(now)});
+    return bundle;
+  }
+
+  private createVerifiedSession(input: Parameters<SessionService["createPasswordSession"]>[0], credentialDigest: string | undefined,method="password"): SessionBundle {
 
     return this.store.transaction(() => {
       // Reset and issuance serialize on this write transaction. A verifier that
@@ -130,9 +141,9 @@ export class SessionService {
       const bundle = this.issue(input.installation.installationId, `dev_${randomUUID()}`, input.now);
       this.registerDeviceKey(bundle.deviceId, input.installation, input.now);
       this.audit.append({
-        eventType: "session.password.created",
+        eventType: method === "password" ? "session.password.created" : "session.invite.created",
         actor: { accountId: this.accountId, deviceId: bundle.deviceId, installationId: input.installation.installationId },
-        subject: { method: "password", displayName: input.installation.displayName },
+        subject: { method, displayName: input.installation.displayName },
         correlationId: input.correlationId,
         occurredAt: nowIso(input.now),
       });

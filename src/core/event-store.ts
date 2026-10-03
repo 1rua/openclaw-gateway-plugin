@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createGatewayDispatchedValidator } from "../../../../gateway-contract/src/dispatched-schema-validator.js";
-import fixtureRegistryJson from "../../../../gateway-contract/vectors/dispatched-schema-fixtures.json" with { type: "json" };
+import coreRegistryJson from "../../../../gateway-contract/core-dispatched-schemas.json" with { type: "json" };
 
 import type { GatewayAccountStore } from "./account-store.js";
 
@@ -16,44 +16,9 @@ export type GatewayEvent = Readonly<{
 
 export type SequencedGatewayEvent = Readonly<GatewayEvent & { sequence: number }>;
 
-type RawFixtureRegistry = {
-  catalogEntries: Array<{ key: Record<string, unknown>; schema: unknown }>;
-  bindingSets: Array<{
-    bindings: Array<{ key: Record<string, unknown>; schemaSha256: string }>;
-  }>;
-};
-
-/**
- * One process-wide dispatched validator built from the single shared fixture
- * registry. Fail closed (contract §9): every appended event payload must
- * validate against its bound sub-Schema, and an event type without a binding
- * is rejected instead of delivered unvalidated.
- */
-const dispatchedEventValidator = (() => {
-  const registry = fixtureRegistryJson as unknown as RawFixtureRegistry;
-  const entries = registry.catalogEntries.map(({ key, schema }) => ({
-    key,
-    schema,
-  })) as unknown as Parameters<typeof createGatewayDispatchedValidator>[0];
-  const core: Array<Record<string, unknown>> = [];
-  const device: Array<Record<string, unknown>> = [];
-  for (const binding of registry.bindingSets[0]!.bindings) {
-    const logical = binding.key;
-    if (logical.kind === "device.request") {
-      device.push({ ...logical, schemaSha256: binding.schemaSha256 });
-    } else {
-      core.push({ ...logical, schemaSha256: binding.schemaSha256 });
-    }
-  }
-  const bindings = {
-    core,
-    device,
-  } as unknown as Parameters<typeof createGatewayDispatchedValidator>[1];
-  return createGatewayDispatchedValidator(entries, bindings);
-})();
-
-export const validateDeviceRequest = (value: Readonly<Record<string, unknown>>): boolean =>
-  dispatchedEventValidator.validate({ kind: "device.request" }, value).ok;
+export const coreCatalog = coreRegistryJson.catalogEntries as unknown as Parameters<typeof createGatewayDispatchedValidator>[0];
+export const coreBindings = coreRegistryJson.bindings.map(binding => ({ ...binding.key, schemaSha256: binding.schemaSha256 })) as unknown as Parameters<typeof createGatewayDispatchedValidator>[1]["core"];
+const dispatchedEventValidator = createGatewayDispatchedValidator(coreCatalog, { core: coreBindings, device: [] });
 
 export class EventStore {
   constructor(
@@ -84,7 +49,9 @@ export class EventStore {
         correlationId: input.correlationId,
         occurredAt: now.toISOString(),
         payload: input.payload,
-        expiresAt: new Date(now.getTime() + this.retentionSeconds * 1000).toISOString(),
+        expiresAt: new Date(Math.min(now.getTime() + this.retentionSeconds * 1000,
+          input.eventType === "device.requested" && typeof input.payload.expiresAt === "string"
+            ? Date.parse(input.payload.expiresAt) : Infinity)).toISOString(),
       });
       const verified = dispatchedEventValidator.validate(
         { kind: "event", eventType: input.eventType },
@@ -131,6 +98,17 @@ export class EventStore {
     return this.readAfterWithSequence(cursor, now).map(({ sequence: _sequence, ...event }) => event);
   }
 
+  /** Release every encrypted transport copy while keeping the event cursor valid. */
+  releaseDeviceRequest(requestId: string): void {
+    for (const raw of this.store.database.prepare("SELECT event_id,payload_json FROM events WHERE event_type='device.requested'").iterate()) {
+      const row = raw as { event_id: string; payload_json: string };
+      const payload = this.store.openJson(row.payload_json,`event:${row.event_id}`) as Record<string,unknown>;
+      if (payload.requestId !== requestId || !("parameters" in payload)) continue;
+      payload.parameters = {};
+      this.store.database.prepare("UPDATE events SET payload_json=? WHERE event_id=?").run(this.store.sealJson(payload,`event:${row.event_id}`),row.event_id);
+    }
+  }
+
   sequenceAfter(cursor: string | null, now = new Date()): number {
     this.purgeExpired(now);
     if (cursor !== null) {
@@ -146,6 +124,20 @@ export class EventStore {
   }
 
   purgeExpired(now = new Date(), limit = 1000): number {
+    // Upgrade pre-policy events in bounded batches. Their payload's resource
+    // expiry was always authoritative, even when the old event TTL was 24h.
+    const marker = this.store.database.prepare("SELECT value FROM account_metadata WHERE key='event-body-policy-v2'").get() as {value:string}|undefined;
+    const legacy = this.store.database.prepare("SELECT event_id,event_sequence,payload_json,expires_at FROM events WHERE event_type='device.requested' AND event_sequence>? ORDER BY event_sequence LIMIT ?")
+      .all(Number(marker?.value ?? 0),limit) as Array<{event_id:string;event_sequence:number;payload_json:string;expires_at:string}>;
+    for (const row of legacy) {
+      const payload = this.store.openJson(row.payload_json,`event:${row.event_id}`) as Record<string,unknown>;
+      const expiry = typeof payload.expiresAt === "string" && Number.isFinite(Date.parse(payload.expiresAt)) ? payload.expiresAt : row.expires_at;
+      const request = this.store.database.prepare("SELECT parameters_json FROM device_requests WHERE request_id=?").get(String(payload.requestId)) as {parameters_json:string}|undefined;
+      if (!request || request.parameters_json === "") payload.parameters = {};
+      this.store.database.prepare("UPDATE events SET payload_json=?,expires_at=? WHERE event_id=?")
+        .run(this.store.sealJson(payload,`event:${row.event_id}`),new Date(Math.min(Date.parse(expiry),Date.parse(row.expires_at))).toISOString(),row.event_id);
+    }
+    if (legacy.length) this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES ('event-body-policy-v2',?)").run(String(legacy.at(-1)!.event_sequence));
     const result = this.store.database.prepare(`DELETE FROM events WHERE event_id IN
       (SELECT event_id FROM events WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`)
       .run(now.toISOString(), limit) as { changes: number };

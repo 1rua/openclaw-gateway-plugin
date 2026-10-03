@@ -1,3 +1,4 @@
+import { enqueueFixture } from "./device-fixtures.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,7 +49,7 @@ const pairedAccount = async (core: GatewayCore, accountId: string): Promise<Live
       deviceId: first.deviceId,
       correlationId: "cor_unpair_second_session",
     });
-    account.deviceRequests.enqueue({
+    enqueueFixture(account, {
       requestId: "req_queued",
       deviceId: first.deviceId,
       pairingGeneration: 1,

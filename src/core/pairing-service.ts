@@ -79,6 +79,7 @@ export class PairingService {
   bumpGrantRevision(input: Readonly<{
     deviceId: string;
     correlationId: string;
+    grantDigest?: string;
     now?: Date;
   }>): Readonly<{ deviceId: string; grantRevision: number }> {
     const now = input.now ?? new Date();
@@ -96,7 +97,7 @@ export class PairingService {
       this.events.append({
         eventType: "pairing.grant.changed",
         correlationId: input.correlationId,
-        payload: { deviceId: input.deviceId, grantRevision: nextRevision },
+        payload: { deviceId: input.deviceId, grantRevision: nextRevision, ...(input.grantDigest ? {grantDigest:input.grantDigest} : {}) },
         now,
       });
       this.audit.append({

@@ -1,3 +1,4 @@
+import { enqueueFixture } from "./device-fixtures.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -151,7 +152,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const storageRoot = tempRoot();
     const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
-    account.deviceRequests.enqueue({
+    enqueueFixture(account, {
       requestId: "device_req_handle",
       deviceId: "dev_1",
       pairingGeneration: 1,
@@ -195,7 +196,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const storageRoot = tempRoot();
     const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
-    account.deviceRequests.enqueue({
+    enqueueFixture(account, {
       requestId: "device_req_replay_binding",
       deviceId: "dev_1",
       pairingGeneration: 4,
@@ -255,7 +256,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const storageRoot = tempRoot();
     const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
-    account.deviceRequests.enqueue({
+    enqueueFixture(account, {
       requestId: "device_req_handle_expiry",
       deviceId: "dev_1",
       pairingGeneration: 2,
@@ -289,7 +290,7 @@ describe("OpenClaw Gateway account isolation", () => {
     const storageRoot = tempRoot();
     const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot });
     const account = await core.openGatewayAccount("acct_alice");
-    account.deviceRequests.enqueue({
+    enqueueFixture(account, {
       requestId: "device_req_terminal_replay",
       deviceId: "dev_1",
       pairingGeneration: 2,

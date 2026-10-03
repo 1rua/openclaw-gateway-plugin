@@ -1,3 +1,4 @@
+import { PairingInvites } from "../core/pairing-invites.js";
 import { createGatewayCore, type GatewayCore } from "../core/gateway-core.js";
 import {
   isHostApiCompatible,
@@ -34,6 +35,7 @@ export type RevokePairingInput = Readonly<{
 }>;
 
 export type AdminCommand =
+  | Readonly<{ command:"pairing.invite";accountId:string;gatewayUrl:string;localConfirmation?:boolean }>
   | Readonly<{ command: "account.create"; input: CreateAccountInput }>
   | Readonly<{ command: "account.reset-password"; input: CreateAccountInput }>
   | Readonly<{ command: "admin.status" }>
@@ -246,8 +248,19 @@ export class AdminService {
     });
   }
 
+  async createPairingInvite(input:Readonly<{accountId:string;gatewayUrl:string;localConfirmation?:boolean}>):Promise<AdminResult> {
+    if (this.readOnly) return failure("pairing.invite",true,"HOST_INCOMPATIBLE");
+    if (input.localConfirmation!==true) return failure("pairing.invite",false,"LOCAL_CONFIRMATION_REQUIRED");
+    if (!this.core.accountExists(input.accountId)) return failure("pairing.invite",false,"ACCOUNT_NOT_FOUND");
+    const account=await this.core.openGatewayAccount(input.accountId);
+    try { return success("pairing.invite",false,new PairingInvites(account.store,account.sessions,input.accountId).issue(input.gatewayUrl,300,new Date(),this.core.gatewayIdentity?.() ?? {})); }
+    catch(error) { return failure("pairing.invite",false,errorCode(error)); }
+    finally { account.close(); }
+  }
+
   async execute(command: AdminCommand): Promise<AdminResult> {
     switch (command.command) {
+      case "pairing.invite": return this.createPairingInvite(command);
       case "account.create":
         return this.createAccount(command.input);
       case "account.reset-password":

@@ -8,7 +8,8 @@ import {
 } from "../../../../gateway-contract/src/state-machines.js";
 import type { GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";
-import { EventStore, validateDeviceRequest } from "./event-store.js";
+import { EventStore } from "./event-store.js";
+import { CapabilityBindings } from "./capability-bindings.js";
 
 export type ClaimReceipt = Readonly<{
   claimId: string;
@@ -36,12 +37,13 @@ type ClaimTransactionResult = Readonly<
 >;
 
 export class DeviceRequestStore {
+  readonly capabilities: CapabilityBindings;
   constructor(
     private readonly accountId: string,
     private readonly store: GatewayAccountStore,
     private readonly audit: AuditStore,
     private readonly events: EventStore,
-  ) {}
+  ) { this.capabilities = new CapabilityBindings(store); }
 
   enqueue(input: Readonly<{
     requestId: string;
@@ -54,19 +56,21 @@ export class DeviceRequestStore {
     parameters: Readonly<Record<string, unknown>>;
     correlationId: string;
     requiresForegroundConfirmation?: boolean;
+    online?: boolean;
     now?: Date;
   }>): DeviceRequestRecord {
     const now = input.now ?? new Date();
     const ttlSeconds = maximumDeviceRequestQueueSeconds(input.risk);
-    const state: DeviceRequestState = ttlSeconds === 0 ? "expired" : "pending";
-    const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
+    const state: DeviceRequestState = ttlSeconds === 0 && !input.online ? "expired" : "pending";
+    // Zero is the offline queue allowance, not an online execution lease.
+    const expiresAt = new Date(now.getTime() + (ttlSeconds || (input.online ? 30 : 0)) * 1000).toISOString();
     const payload = {
       requestId: input.requestId, capability: input.capability, provider: input.provider,
       parameters: input.parameters, risk: input.risk, grantRevision: input.grantRevision,
       createdAt: now.toISOString(), expiresAt,
-      requiresForegroundConfirmation: input.requiresForegroundConfirmation ?? false,
+      requiresForegroundConfirmation: input.risk === "high-privilege-ephemeral" || (input.requiresForegroundConfirmation ?? false),
     };
-    if (!validateDeviceRequest(payload)) throw new Error("SCHEMA_INVALID");
+    if (!this.capabilities.validate(input.deviceId,input.pairingGeneration,input.grantRevision,payload)) throw new Error("SCHEMA_INVALID");
     return this.store.transaction(() => {
     this.store.database
       .prepare(`
@@ -230,6 +234,7 @@ export class DeviceRequestStore {
       this.store.database
         .prepare("UPDATE device_requests SET state = ?, parameters_json = '', result_json = ? WHERE request_id = ?")
         .run(next, this.store.sealJson(input.result, `device-result:${input.requestId}:${input.claimId}`), input.requestId);
+      this.events.releaseDeviceRequest(input.requestId);
       this.audit.append({
         eventType: "device.request.result",
         actor: { accountId: this.accountId, deviceId: input.deviceId },
@@ -273,6 +278,23 @@ export class DeviceRequestStore {
    * left behind is bound to a generation the device can no longer present, so it
    * can never be claimed or answered (§12, `PAIRING_GENERATION_STALE`).
    */
+  cancel(input: Readonly<{requestId:string;deviceId:string;pairingGeneration:number;grantRevision:number;correlationId:string;now?:Date}>): DeviceRequestRecord {
+    const outcome = this.store.transaction<DeviceRequestRecord | "OUTCOME_UNKNOWN">(() => {
+      const row = this.getRow(input.requestId);
+      this.assertBinding(row,input.deviceId,input.pairingGeneration,input.grantRevision);
+      if (this.expireIfDue(row,input.now ?? new Date())) return "OUTCOME_UNKNOWN";
+      if (row.state === "cancelled" || row.state === "cancel_requested") return this.get(input.requestId);
+      const state = nextDeviceRequestState(String(row.state) as DeviceRequestState,"cancel");
+      this.store.database.prepare("UPDATE device_requests SET state=?,parameters_json=CASE WHEN ?='cancelled' THEN '' ELSE parameters_json END WHERE request_id=?")
+        .run(state,state,input.requestId);
+      if (state === "cancelled") this.events.releaseDeviceRequest(input.requestId);
+      this.events.append({eventType:"device.request.cancel.requested",correlationId:input.correlationId,payload:{requestId:input.requestId},now:input.now});
+      return this.get(input.requestId);
+    });
+    if (outcome === "OUTCOME_UNKNOWN") throw new Error(outcome);
+    return outcome;
+  }
+
   revokeForDevice(input: Readonly<{
     deviceId: string;
     correlationId: string;
@@ -353,6 +375,7 @@ export class DeviceRequestStore {
     const receipt = this.store.database.prepare("SELECT 1 FROM claim_receipts WHERE request_id = ? AND claim_id = ?").get(requestId, claimId);
     if (receipt === undefined) throw new Error("OUTCOME_UNKNOWN");
     this.store.database.prepare("UPDATE device_requests SET result_json = '' WHERE request_id = ?").run(requestId);
+    this.events.releaseDeviceRequest(requestId);
   }
 
   purgeTerminalPayloads(now = new Date()): number {

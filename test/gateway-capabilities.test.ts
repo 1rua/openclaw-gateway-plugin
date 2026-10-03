@@ -153,11 +153,9 @@ describe("OpenClaw Gateway capabilities", () => {
     const data = accepted.body["data"] as Record<string, unknown>;
     expect(data["protocol"]).toEqual({ major: 2, minor: 1 });
     const features = data["features"] as Record<string, unknown>;
-    // account-invitation and device-key are offered by the client but not
-    // implemented here, so they must not come back as agreed.
-    expect(features["auth"]).toEqual(["password", "refresh"]);
+    expect(features["auth"]).toEqual(["password", "refresh", "account-invitation", "device-key"]);
     expect(features["messages"]).toBe("chat-v1");
-    expect(JSON.stringify(features)).not.toContain("message-batches-v1");
+    expect(JSON.stringify(features)).toContain("message-batches-v1");
     // The phone offers `/new` creation on every connection; a host without that
     // command entry must refuse it outright so the UI can say so, rather than
     // letting the phone mint a conversation the Gateway has never agreed to.
@@ -167,7 +165,7 @@ describe("OpenClaw Gateway capabilities", () => {
     // outright so the UI says "this Gateway has no approval cards" instead of
     // painting a card whose decision could never be submitted.
     expect(JSON.stringify(features)).not.toContain("agent-approval-cards-v1");
-    expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1"]);
+    expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1","message-batches-v1"]);
     expect(data["limits"]).toMatchObject({ attachmentTtlSeconds: DEFAULT_ATTACHMENT_POLICY.attachmentTtlSeconds });
     expect(data["limits"]).not.toHaveProperty("maxSingleAttachmentBytes");
     expect(data["limits"]).not.toHaveProperty("maxMessageAttachmentBytes");

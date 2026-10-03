@@ -1,3 +1,4 @@
+import { enqueueFixture } from "./device-fixtures.js";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -59,7 +60,7 @@ describe("review security boundaries", () => {
     const input = { requestId: "dr_invalid", deviceId: "dev_1", pairingGeneration: 1, grantRevision: 1, risk: "read" as const,
       capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" }, provider: { pluginId: "org.openandroidintelligence.sms", authorKeyId: "sha256:" + "a".repeat(64) },
       parameters: { limit: 1 }, correlationId: "cor_invalid", now };
-    expect(() => account.deviceRequests.enqueue(input)).toThrow("SCHEMA_INVALID");
+    expect(() => enqueueFixture(account, input)).toThrow("SCHEMA_INVALID");
     expect(account.store.database.prepare("SELECT COUNT(*) AS count FROM device_requests").get()!.count).toBe(0);
     expect(account.events.readAfter(null, now)).toEqual([]);
     account.close();
@@ -125,7 +126,7 @@ describe("review security boundaries", () => {
     const account = await core.openGatewayAccount("alice");
     const event = account.events.append({ eventType: "conversation.message.completed", correlationId: "cor_review", now,
       payload: { conversationId: "conv_review", messageId: "msg_review", sender: "assistant", parts: [{ type: "text", text: "private-event-marker" }], text: "private-event-marker", timestamp: +now, revision: 1 } });
-    account.deviceRequests.enqueue({ requestId: "dr_review", deviceId: "dev_review", pairingGeneration: 1, grantRevision: 1, risk: "read",
+    enqueueFixture(account, { requestId: "dr_review", deviceId: "dev_review", pairingGeneration: 1, grantRevision: 1, risk: "read",
       capability: { id: "org.openandroidintelligence.sms.query", version: "1.0.0" }, provider: { pluginId: "org.openandroidintelligence.sms", authorKeyId: "sha256:" + "a".repeat(64) },
       parameters: { query: "private-input-marker" }, correlationId: "cor_device", now });
     const receipt = account.deviceRequests.claim({ requestId: "dr_review", deviceId: "dev_review", pairingGeneration: 1, grantRevision: 1, correlationId: "cor_claim", now });

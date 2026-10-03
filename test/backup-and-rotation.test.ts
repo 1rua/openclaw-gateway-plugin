@@ -1,3 +1,4 @@
+import { enqueueFixture } from "./device-fixtures.js";
 import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,7 +46,7 @@ describe("OpenClaw Gateway backup and identity rotation", () => {
     alice.attachments.commit(attachment.attachmentId);
     alice.attachments.markDelivered(attachment.attachmentId);
     alice.attachments.acknowledge(attachment.attachmentId, "cor_ack");
-    alice.deviceRequests.enqueue({
+    enqueueFixture(alice, {
       requestId: "device_req_pending_backup",
       deviceId: session.deviceId,
       pairingGeneration: 1,

@@ -1,3 +1,4 @@
+import type { GenerationCanceller } from "./conversation-workflow.js";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -17,6 +18,8 @@ import { ConversationPort } from "./conversation-port.js";
 import { CredentialStore } from "./credential-store.js";
 import { DeviceRequestStore } from "./device-request-store.js";
 import { EventStore } from "./event-store.js";
+import { HistoryMedia } from "./history-media.js";
+import { PairingInvites } from "./pairing-invites.js";
 import { PairingService } from "./pairing-service.js";
 import { SessionService } from "./session-service.js";
 import {
@@ -115,10 +118,15 @@ export type GatewayCore = Readonly<{
   listGatewayAccountIds?: () => string[];
   /** Whether this host registered the account; login never creates one. */
   accountExists: (accountId: string) => boolean;
+  gatewayIdentity?: () => Record<string,unknown>;
   /** Recheck a verified stream binding without consuming its handshake nonce. */
   isEventSessionActive?: (context: VerifiedRequestContext, now?: Date) => boolean;
+  setDeviceOnline?: (context: VerifiedRequestContext, online: boolean) => void;
+  isDeviceOnline?: (accountId: string, deviceId: string, generation: number) => boolean;
   /** Resource-level removal of one logical Gateway (contract §13). */
   deleteGatewayAccount: (accountId: string) => boolean;
+  setGenerationCanceller?: (cancel: GenerationCanceller) => void;
+  setHostSessionResolver?: (resolver:(accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined)=>void;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
   uploadAttachmentContent?: (
     request: VerifiedGatewayRequest,
@@ -137,7 +145,7 @@ export const GATEWAY_PROTOCOL_VERSION = Object.freeze({ major: 2, minor: 1 });
  * Contract §4 keeps the base session capabilities in `messages`/`attachments`
  * and the conversation-surface ladder in `conversationUi`.
  */
-export const SUPPORTED_AUTH = Object.freeze(["password", "refresh"]);
+export const SUPPORTED_AUTH = Object.freeze(["password", "account-invitation", "refresh", "device-key"]);
 // `agent-command-new-v1` (contract §7.1) is deliberately absent: this host has
 // no `/new` command entry that would atomically create a conversation and answer
 // with the authoritative id, so agreeing to it would promise the phone a service
@@ -146,7 +154,7 @@ export const SUPPORTED_AUTH = Object.freeze(["password", "refresh"]);
 // `agent-approval-cards-v1` (contract §7.2) is deliberately absent because this
 // host has no approval-card endpoint, durable decision record or decision
 // handler. A live SSE status channel does not implement those missing actions.
-export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1"]);
+export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1", "message-batches-v1"]);
 export const REQUIRED_FEATURES = Object.freeze({
   messages: "chat-v1",
   attachments: "staged-sha256-v1",
@@ -530,6 +538,14 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   const attachmentMasterKey = loadAttachmentMasterKey(options.attachmentMasterKey);
   const tlsSpkiSha256 = options.tlsSpkiSha256 ?? process.env["OPEN_ANDROID_INTELLIGENCE_GATEWAY_TLS_SPKI_SHA256"] ?? null;
   if (tlsSpkiSha256 !== null && (!/^sha256:[a-f0-9]{64}$/.test(tlsSpkiSha256) || tlsSpkiSha256 === `sha256:${"0".repeat(64)}`)) throw new Error("GATEWAY_TLS_IDENTITY_INVALID");
+  let generationCanceller: GenerationCanceller | undefined;
+  let hostSessionResolver:Parameters<NonNullable<GatewayCore['setHostSessionResolver']>>[0]|undefined;
+  const openAccount=async(accountId:string):Promise<GatewayAccount>=> {
+    const account=await buildAccount(resolveRoot(),accountId,policy,attachmentMasterKey);
+    if(hostSessionResolver) account.conversations.setHostSessionResolver(hostSessionResolver);
+    return account;
+  };
+  const activeCancellations = new Map<string,Promise<string>>();
   const activeUploads = new Map<string, Promise<GatewayResponse>>();
   // Pending negotiations are short-lived and this host has no durable cross-
   // account store for them; a restart simply requires a new negotiation.
@@ -587,7 +603,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     }
     const conversationUi = Array.isArray(requested["conversationUi"])
       ? (requested["conversationUi"] as readonly unknown[]).filter(
-          (item): item is string => typeof item === "string" && SUPPORTED_CONVERSATION_UI.includes(item),
+          (item): item is string => typeof item === "string" && (SUPPORTED_CONVERSATION_UI.includes(item) || (item === "generation-cancel-v1" && generationCanceller !== undefined)),
         )
       : [];
     const features: Record<string, unknown> = { auth, ...REQUIRED_FEATURES };
@@ -640,6 +656,40 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         return failure(request, gatewayErrorCode(error));
       }
     }
+    if (request.method === "POST" && ["/open-android-intelligence/v2/sessions/invite/challenge","/open-android-intelligence/v2/sessions/invite/exchange","/open-android-intelligence/v2/pairings/exchange","/open-android-intelligence/v2/sessions/device/challenge","/open-android-intelligence/v2/sessions/device"].includes(request.target)) {
+      let admitted=false;
+      try {
+        const body=bodyRecord(request.body); const accountId=String(body.accountId ?? body.username ?? "");
+        const challenge=request.target.endsWith("challenge");
+        const device=request.target.includes("/sessions/device");
+        const allowed=device ? ["accountId","negotiationId","installationId","deviceId"] : challenge ? ["accountId","negotiationId","code","installation"] : ["accountId","negotiationId","challengeId","signature"];
+        if (device && !challenge) assertSchema("session.device",body);
+        else if (Object.keys(body).sort().join() !== allowed.sort().join()) throw new Error("SCHEMA_INVALID");
+        if (!accountExistsIn(resolveRoot(),accountId)) throw new Error("AUTHENTICATION_FAILED");
+        const pending=pendingNegotiations.get(String(body.negotiationId));
+        if (!pending || pending.expiresAt<=now.getTime()) throw new Error("PROTOCOL_INCOMPATIBLE");
+        admitPassword(request,accountId,now.getTime()); admitted=true;
+        const account=await openAccount(accountId);
+        try {
+          const service=new PairingInvites(account.store,account.sessions,accountId);
+          if (device) {
+            if (body.installationId!==pending.installationId) throw new Error("PROTOCOL_INCOMPATIBLE");
+            if (challenge) return success(request,service.deviceChallenge(String(body.negotiationId),String(body.installationId),String(body.deviceId),now));
+            const bundle=service.deviceExchange(body,identityOf(request).correlationId,now);
+            const key=account.store.database.prepare("SELECT pairing_generation,grant_revision FROM device_keys WHERE device_id=?").get(bundle.deviceId) as {pairing_generation:number;grant_revision:number};
+            return success(request,{...bundle,accountId,pairingGeneration:key.pairing_generation,grantRevision:key.grant_revision});
+          }
+          if (challenge) {
+            const installation=bodyRecord(body.installation);
+            if (Object.keys(installation).sort().join() !== ["installationId","displayName","devicePublicKey"].sort().join() || installation.installationId!==pending.installationId) throw new Error("PROTOCOL_INCOMPATIBLE");
+            return success(request,service.challenge(String(body.code),String(body.negotiationId),installation as Parameters<PairingInvites["challenge"]>[2],now));
+          }
+          const bundle=service.exchange(String(body.challengeId),String(body.signature),String(body.negotiationId),identityOf(request).correlationId,now);
+          return success(request,{...bundle,accountId,pairingGeneration:account.sessions.currentPairingGeneration(),grantRevision:1});
+        } finally { account.close(); }
+      } catch(error) { return failure(request,gatewayErrorCode(error)); }
+      finally { if (admitted) passwordJobs-=1; }
+    }
     if (request.method === "POST" && request.target === "/open-android-intelligence/v2/sessions/password") {
       let admitted = false;
       try {
@@ -661,7 +711,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         }
         admitPassword(request, accountId, now.getTime());
         admitted = true;
-        const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
+        const account = await openAccount(accountId);
         try {
           const bundle = await account.sessions.createPasswordSessionAsync({
             username: accountId,
@@ -674,7 +724,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             correlationId: identityOf(request).correlationId,
             now,
           });
-          return success(request, { ...bundle, accountId });
+          const pairing = account.store.database.prepare("SELECT pairing_generation,grant_revision FROM device_keys WHERE device_id=?").get(bundle.deviceId) as {pairing_generation:number;grant_revision:number};
+          return success(request, { ...bundle, accountId, pairingGeneration:pairing.pairing_generation,grantRevision:pairing.grant_revision });
         } finally {
           account.close();
         }
@@ -690,7 +741,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         assertSchema("session.refresh", body);
         const accountId = String(body["accountId"]);
         if (!accountExistsIn(resolveRoot(), accountId)) return failure(request, "AUTHENTICATION_FAILED");
-        const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
+        const account = await openAccount(accountId);
         try {
           const bundle = account.sessions.refresh({
             refreshCredential: String(body["refreshCredential"]),
@@ -699,7 +750,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             correlationId: identityOf(request).correlationId,
             now,
           });
-          return success(request, { ...bundle, accountId });
+          const pairing = account.store.database.prepare("SELECT pairing_generation,grant_revision FROM device_keys WHERE device_id=?").get(bundle.deviceId) as {pairing_generation:number;grant_revision:number};
+          return success(request, { ...bundle, accountId, pairingGeneration:pairing.pairing_generation,grantRevision:pairing.grant_revision });
         } finally {
           account.close();
         }
@@ -725,7 +777,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         }
         if (!accountExistsIn(resolveRoot(), accountId)) return failure(request, "AUTHENTICATION_FAILED");
         const revokeRefresh = /(?:^|[?&])revokeRefresh=true(?:&|$)/.test(request.target);
-        const account = await buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey);
+        const account = await openAccount(accountId);
         try {
           if (!account.sessions.verifyAccessToken(accessToken, sessionId, deviceId, now)) {
             return failure(request, "AUTHENTICATION_FAILED");
@@ -800,7 +852,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     if (!Number.isSafeInteger(input.contentLength) || input.contentLength < 0 || !/^[0-9a-f]{64}$/u.test(input.sha256)) {
       return failure(request, "SCHEMA_INVALID");
     }
-    const account = await buildAccount(resolveRoot(), context.accountId, policy, attachmentMasterKey);
+    const account = await openAccount(context.accountId);
     const attachmentId = attachmentMatch[1];
     const key = `${context.accountId}\u0000${attachmentId}`;
     const inputHash = createHash("sha256")
@@ -871,12 +923,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     }
   };
 
-  return Object.freeze({
-    openGatewayAccount: async (accountId: string): Promise<GatewayAccount> =>
-      buildAccount(resolveRoot(), accountId, policy, attachmentMasterKey),
-    listGatewayAccountIds,
-    accountExists: (accountId: string): boolean => accountExistsIn(resolveRoot(), accountId),
-    isEventSessionActive: (context: VerifiedRequestContext, now = new Date()): boolean => {
+  const isEventSessionActive = (context: VerifiedRequestContext, now = new Date()): boolean => {
       let database: DatabaseSync | undefined;
       try {
         // Read the current file, not a handle to a deleted/replaced account.
@@ -891,7 +938,40 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
           && Number(row.pairing_generation) === context.pairingGeneration;
       } catch { return false; }
       finally { database?.close(); }
+    };
+  const online = new Map<string,{context:VerifiedRequestContext;count:number}>();
+  return Object.freeze({
+    gatewayIdentity: () => ({deploymentId:deploymentIdOf(resolveRoot()),tlsSpkiSha256}),
+    setGenerationCanceller: (cancel:GenerationCanceller):void => { generationCanceller=cancel; },
+    setHostSessionResolver: (resolver:NonNullable<typeof hostSessionResolver>):void=> {hostSessionResolver=resolver;},
+    openGatewayAccount: async (accountId: string): Promise<GatewayAccount> =>
+      openAccount(accountId),
+    listGatewayAccountIds,
+    accountExists: (accountId: string): boolean => accountExistsIn(resolveRoot(), accountId),
+    isEventSessionActive,
+    setDeviceOnline: (context: VerifiedRequestContext, connected: boolean): void => {
+      const key = JSON.stringify([context.accountId,context.deviceId,context.sessionId]);
+      const existing = online.get(key);
+      if (connected) { if (isEventSessionActive(context)) online.set(key,{context,count:(existing?.count ?? 0)+1}); }
+      else if (existing && existing.count > 1) online.set(key,{context:existing.context,count:existing.count-1});
+      else online.delete(key);
+      if (!connected && ![...online.values()].some(({context:other}) => other.accountId===context.accountId && other.deviceId===context.deviceId && isEventSessionActive(other))
+          && accountExistsIn(resolveRoot(),context.accountId)) {
+        const store=openAccountStore(accountPaths(resolveRoot(),context.accountId),{accountId:context.accountId,masterKey:attachmentMasterKey.bytes,reference:attachmentMasterKey.reference});
+        try {
+          store.transaction(()=> {
+            const rows=store.database.prepare("SELECT request_id FROM device_requests WHERE device_id=? AND pairing_generation=? AND risk='high-privilege-ephemeral' AND state='pending'").all(context.deviceId,context.pairingGeneration) as Array<{request_id:string}>;
+            const events=new EventStore(store,policy.eventRetentionSeconds);
+            for(const row of rows) {
+              store.database.prepare("UPDATE device_requests SET state='expired',parameters_json='',result_json='',expires_at=? WHERE request_id=?").run(new Date().toISOString(),row.request_id);
+              events.releaseDeviceRequest(row.request_id);
+            }
+          });
+        } finally {store.close();}
+      }
     },
+    isDeviceOnline: (accountId: string, deviceId: string, generation: number): boolean => [...online.values()].some(({context}) =>
+      context.accountId === accountId && context.deviceId === deviceId && context.pairingGeneration === generation && isEventSessionActive(context)),
     deleteGatewayAccount: (accountId: string): boolean => {
       // The account directory *is* the logical Gateway: database, staged and
       // confirmed attachment bytes, credentials and the account audit trail.
@@ -913,7 +993,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             sha256: digest,
           });
         }
-        const account = await buildAccount(resolveRoot(), request.context.accountId, policy, attachmentMasterKey);
+        const account = await openAccount(request.context.accountId);
         try {
           assertNoIdentityOverride(request.body);
           if (request.method === "GET" && request.target.startsWith("/open-android-intelligence/v2/events")) {
@@ -930,6 +1010,52 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               }
               throw error;
             }
+          }
+          if (request.method === "GET" && request.target === "/open-android-intelligence/v2/sync/snapshot") {
+            const baseline = account.events.append({eventType:"gateway.notice",correlationId:request.context!.correlationId,
+              payload:{noticeCode:"SYNC_BASELINE"},...(request.now ? {now:request.now} : {})});
+            const pending = account.store.database.prepare("SELECT request_id FROM device_requests WHERE device_id=? AND pairing_generation=? AND state IN ('pending','claimed','cancel_requested') ORDER BY created_at").all(request.context!.deviceId,request.context!.pairingGeneration);
+            return success(request,{baselineCursor:baseline.eventId,conversations:account.conversations.list(),
+              pendingDeviceRequests:pending.map(row => (row as {request_id:string}).request_id),pairingGeneration:request.context!.pairingGeneration,grantRevision:request.context!.grantRevision});
+          }
+          const currentGeneration=request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/generations\/current$/);
+          if (request.method==="GET" && currentGeneration) {
+            account.conversations.get(currentGeneration[1]!);
+            return success(request,{generation:account.conversations.workflow.current(currentGeneration[1]!)});
+          }
+          const cancelRoute=request.method === "POST" ? request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/generations\/([^/]+)\/cancel$/) : undefined;
+          if (cancelRoute) {
+            const context=request.context!;
+            const body=bodyRecord(request.body);
+            if (Object.keys(body).join()!=="requestId" || body.requestId!==context.requestId || request.idempotencyKey!==context.requestId) throw new Error("SCHEMA_INVALID");
+            const previous=account.store.database.prepare("SELECT 1 FROM idempotency_ledger WHERE device_id=? AND request_id=?").get(context.deviceId,context.requestId);
+            if (previous) return runIdempotent(account,request,()=> { throw new Error("OUTCOME_UNKNOWN"); });
+            const key=JSON.stringify([context.accountId,cancelRoute[2],context.deviceId]);
+            let pending=activeCancellations.get(key);
+            if (!pending) {
+              pending=account.conversations.workflow.prepareCancel(cancelRoute[1]!,cancelRoute[2]!,context,
+                generationCanceller ? ()=>generationCanceller!(context.accountId,cancelRoute[1]!,cancelRoute[2]!) : undefined);
+              activeCancellations.set(key,pending);
+            }
+            try {
+              const outcome=await pending;
+              return runIdempotent(account,request,()=>success(request,account.conversations.workflow.finishCancel(cancelRoute[1]!,cancelRoute[2]!,outcome,context,request.now)));
+            } finally { if (activeCancellations.get(key)===pending) activeCancellations.delete(key); }
+          }
+          const historyMedia=request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/attachments\/([^/]+)\/(metadata|cache-grant|content)$/);
+          if (historyMedia) {
+            account.conversations.get(historyMedia[1]!);const media=new HistoryMedia(account.store,account.accountId);
+            if (request.method==="GET" && historyMedia[3]==="metadata") return success(request,{metadata:media.metadata(historyMedia[1]!,historyMedia[2]!)});
+            if (request.method==="POST" && historyMedia[3]==="cache-grant") {
+              if (Object.keys(bodyRecord(request.body)).length!==0) throw new Error("SCHEMA_INVALID");
+              return runIdempotent(account,request,()=>success(request,media.grant(historyMedia[1]!,historyMedia[2]!,request.context!,request.now)));
+            }
+            if (request.method==="GET" && historyMedia[3]==="content") {
+              const grant=new URL(request.target,"https://gateway.invalid").searchParams.get("grantId") ?? "";
+              const content=media.content(historyMedia[1]!,historyMedia[2]!,grant,request.context!,request.now);
+              return success(request,{contentBase64:Buffer.from(content.body).toString("base64"),mediaType:content.mediaType});
+            }
+            throw new Error("SCHEMA_INVALID");
           }
           const claimMatch = request.method === "POST"
             ? request.target.match(/^\/open-android-intelligence\/v2\/device-requests\/([^/]+)\/claim$/)
@@ -958,7 +1084,43 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                   });
                 }
               : undefined;
+            const historyGet = request.method === "GET" ? request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/messages$/) : undefined;
+            if (historyGet?.[1] !== undefined) {
+              const query = new URL(request.target, "https://gateway.invalid").searchParams;
+              return success(request, await account.conversations.listMessages(historyGet[1], {
+                ...(query.get("clientMessageId") ? { clientMessageId: query.get("clientMessageId")! } : {}),
+                ...(query.get("cursor") ? { cursor: query.get("cursor")! } : {}),
+                ...(query.get("limit") ? { limit: Number(query.get("limit")) } : {}),
+              }));
+            }
           return runIdempotent(account, request, () => {
+            if (request.method === "GET" && request.target === "/open-android-intelligence/v2/pairings/current") {
+              const saved = account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`device-grant-digest:${request.context!.deviceId}`) as {value:string} | undefined;
+              return success(request,{deviceId:request.context!.deviceId,pairingGeneration:request.context!.pairingGeneration,
+                grantRevision:request.context!.grantRevision,...(saved ? {grantDigest:saved.value} : {})});
+            }
+            if (request.method === "POST" && request.target === "/open-android-intelligence/v2/pairings/current/capabilities") {
+              const body = bodyRecord(request.body);
+              if (Object.keys(body).sort().join() !== ["bindings","expectedGrantRevision","localGrantRevision"].sort().join()
+                || body.expectedGrantRevision !== request.context!.grantRevision || !Number.isSafeInteger(body.localGrantRevision)) throw new Error("GRANT_STALE");
+              const digest = `sha256:${createHash("sha256").update(canonicalJson({ bindings: body.bindings, localGrantRevision: body.localGrantRevision })).digest("hex")}`;
+              const key = `device-grant-digest:${request.context!.deviceId}`;
+              const prior = account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(key) as { value: string } | undefined;
+              const revision = prior?.value === digest ? request.context!.grantRevision : account.pairings.bumpGrantRevision({deviceId:request.context!.deviceId,correlationId:request.context!.correlationId,grantDigest:digest,now:request.now}).grantRevision;
+              account.deviceRequests.capabilities.register(request.context!.deviceId,request.context!.pairingGeneration,revision,
+                body.bindings as Parameters<typeof account.deviceRequests.capabilities.register>[3]);
+              account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)").run(key,digest);
+              return success(request,{ grantRevision:revision,grantDigest:digest });
+            }
+            const deviceGet = request.method === "GET" ? request.target.match(/^\/open-android-intelligence\/v2\/device-requests\/([^/]+)$/) : undefined;
+            if (deviceGet?.[1]) {
+              const row = account.deviceRequests.get(deviceGet[1]);
+              if (row.deviceId !== request.context!.deviceId || row.pairingGeneration !== request.context!.pairingGeneration) throw new Error("PAIRING_GENERATION_STALE");
+              const raw = account.store.database.prepare("SELECT capability_json,provider_json,parameters_json,created_at FROM device_requests WHERE request_id=?").get(row.requestId) as Record<string,unknown>;
+              return success(request,{ request:{...row,capability:JSON.parse(String(raw.capability_json)),provider:JSON.parse(String(raw.provider_json)),
+                parameters:raw.parameters_json ? account.store.openJson(String(raw.parameters_json),`device-request:${row.requestId}`) : {},createdAt:raw.created_at,
+                requiresForegroundConfirmation:row.risk === "high-privilege-ephemeral" || row.risk === "write"} });
+            }
             if (request.method === "DELETE" && request.target.split("?")[0] === UNPAIR_TARGET) {
               return unpairCurrent(request, account);
             }
@@ -1018,6 +1180,10 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
                 }),
               });
             }
+            const batchMatch=request.method === "POST" ? request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/message-batches$/) : undefined;
+            if (batchMatch) return success(request,account.conversations.workflow.acceptBatch(batchMatch[1]!,request.body,request.context!,member=>account.conversations.acceptMessage({
+              ...member,conversationId:batchMatch[1]!,attachmentIds:[],deviceId:request.context!.deviceId,requestId:request.context!.requestId,correlationId:request.context!.correlationId,now:request.now,emitQueued:false
+            })));
             const messageMatch = request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/messages$/);
             if (request.method === "POST" && messageMatch?.[1] !== undefined) {
               assertSchema("message.create", request.body);

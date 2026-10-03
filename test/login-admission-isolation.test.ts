@@ -46,7 +46,10 @@ describe("password admission isolation", () => {
       // The same account from another host-supplied peer has its own budget.
       expect(await core.handle({ method: "POST", target: "/open-android-intelligence/v2/sessions/password", remoteAddress: "198.51.100.3", body: login("alice") })).toHaveProperty("data.accessToken");
     } finally {
-      await new Promise<void>(resolve => { server.close(resolve); server.closeAllConnections(); });
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+        server.closeAllConnections();
+      });
       rmSync(storageRoot, { recursive: true, force: true });
     }
   }, 30_000);

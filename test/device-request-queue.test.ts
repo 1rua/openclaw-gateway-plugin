@@ -1,3 +1,4 @@
+import { enqueueFixture } from "./device-fixtures.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ describe("OpenClaw Gateway device request queue", () => {
     const alice = await core.openGatewayAccount("acct_alice");
     const bob = await core.openGatewayAccount("acct_bob");
 
-    const read = alice.deviceRequests.enqueue({
+    const read = enqueueFixture(alice, {
       requestId: "device_req_read",
       deviceId: "dev_1",
       pairingGeneration: 4,
@@ -30,7 +31,7 @@ describe("OpenClaw Gateway device request queue", () => {
       correlationId: "cor_device_read",
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
-    const write = alice.deviceRequests.enqueue({
+    const write = enqueueFixture(alice, {
       requestId: "device_req_write",
       deviceId: "dev_1",
       pairingGeneration: 4,
@@ -45,7 +46,7 @@ describe("OpenClaw Gateway device request queue", () => {
       correlationId: "cor_device_write",
       now: new Date("2026-08-24T12:00:00.000Z"),
     });
-    const high = alice.deviceRequests.enqueue({
+    const high = enqueueFixture(alice, {
       requestId: "device_req_high",
       deviceId: "dev_1",
       pairingGeneration: 4,
@@ -172,7 +173,7 @@ describe("OpenClaw Gateway device request queue", () => {
     const core = createGatewayCore({ attachmentMasterKey: Buffer.alloc(32, 0x42), storageRoot: tempRoot() });
     const alice = await core.openGatewayAccount("acct_alice");
 
-    alice.deviceRequests.enqueue({
+    enqueueFixture(alice, {
       requestId: "device_req_expired_pending",
       deviceId: "dev_1",
       pairingGeneration: 2,
@@ -199,7 +200,7 @@ describe("OpenClaw Gateway device request queue", () => {
     ).toThrowError("OUTCOME_UNKNOWN");
     expect(alice.deviceRequests.get("device_req_expired_pending").state).toBe("expired");
 
-    alice.deviceRequests.enqueue({
+    enqueueFixture(alice, {
       requestId: "device_req_expired_claimed",
       deviceId: "dev_1",
       pairingGeneration: 2,

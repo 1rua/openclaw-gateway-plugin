@@ -1,3 +1,4 @@
+import { enqueueFixture } from "./device-fixtures.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -162,7 +163,7 @@ describe("OpenClaw Gateway grant revisions and session.revoked events", () => {
     const account = await core.openGatewayAccount(ACCOUNT_ID);
     try {
       const bumped = account.pairings.bumpGrantRevision({ deviceId, correlationId: "cor_bump_stale" });
-      account.deviceRequests.enqueue({
+      enqueueFixture(account, {
         requestId: "device_req_grant_stale",
         deviceId,
         pairingGeneration: 1,

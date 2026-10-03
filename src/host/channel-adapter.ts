@@ -1,3 +1,5 @@
+import { registerDeviceTools, type DeviceToolApi } from "./device-tools.js";
+import {existsSync} from "node:fs";
 import { createGatewayCore, type GatewayCore } from "../core/gateway-core.js";
 import { createGatewayRequestVerifier } from "../http/request-verifier.js";
 import { dispatchGatewayMessageToOpenClaw, OPENCLAW_CHANNEL_ID, type OpenClawInboundRuntime, type OpenClawLog } from "./inbound-dispatch.js";
@@ -135,6 +137,13 @@ const startInboundWorker = (
 ): void => {
   let nextAccountIndex = 0;
   const nextAttachmentSweepAt = new Map<string, number>();
+  if(runtime) core.setHostSessionResolver?.((accountId,conversationId)=> {
+    const route=runtime.routing.resolveAgentRoute({cfg,channel:OPENCLAW_CHANNEL_ID,accountId:channelAccountId,peer:{kind:"direct",id:`${accountId}:${conversationId}`}}) as {agentId?:string;sessionKey?:string};
+    if(typeof route.agentId!=="string" || typeof route.sessionKey!=="string") return undefined;
+    const session=(cfg as {session?:{store?:string}}|undefined)?.session;
+    const storePath=runtime.session.resolveStorePath(session?.store,{agentId:route.agentId});
+    return existsSync(storePath) ? {storePath,sessionKey:route.sessionKey} : undefined;
+  });
   const run = async (): Promise<void> => {
     while (!abortSignal.aborted) {
       const accountIds = core.listGatewayAccountIds?.() ?? [];
@@ -153,6 +162,14 @@ const startInboundWorker = (
             account.events.purgeExpired(now);
             account.deviceRequests.recoverExpired(now);
             account.deviceRequests.purgeTerminalPayloads(now);
+            const marker=account.store.database.prepare("SELECT value FROM account_metadata WHERE key='native-history-maintenance-offset'").get() as {value:string}|undefined;
+            const offset=Number(marker?.value ?? 0);
+            const conversations=account.conversations.list().slice(offset,offset+10);
+            for(const conversation of conversations) {
+              try {await account.conversations.listMessages(conversation.conversationId,{limit:1});}
+              catch {log?.warn?.(`Open Android native history maintenance deferred: accountId=${accountId}`);}
+            }
+            account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES ('native-history-maintenance-offset',?)").run(String(conversations.length===10 ? offset+10 : 0));
             account.audit.purge(now);
             account.store.database.prepare(`DELETE FROM idempotency_ledger WHERE rowid IN
               (SELECT rowid FROM idempotency_ledger WHERE expires_at <= ? LIMIT 1000)`).run(now.toISOString());
@@ -248,7 +265,7 @@ export type OpenClawGatewayMethodHandler = (
   options: OpenClawGatewayMethodHandlerOptions,
 ) => Promise<void> | void;
 
-export type OpenClawPluginApi = Readonly<{
+export type OpenClawPluginApi = DeviceToolApi & Readonly<{
   registerChannel: (registration: OpenClawChannelRegistration | OpenClawChannelPlugin) => void;
   registerHttpRoute: (route: OpenClawPluginHttpRouteParams) => void;
   registerAdminPanel?: (panel: AdminPanel) => void;
@@ -272,6 +289,7 @@ export type OpenClawPluginApi = Readonly<{
     dataDir?: string;
     gatewayCore?: GatewayCore;
     verifyRequest?: GatewayRequestVerifier;
+    gateway?: Readonly<{ request: (method:string,params?:Record<string,unknown>,options?:unknown)=>Promise<unknown> }>;
   }>;
   pluginConfig?: Readonly<Record<string, unknown>>;
 }>;
@@ -357,6 +375,22 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
     maxBodyBytes: api.maxBodyBytes,
     tlsSpkiSha256: typeof api.pluginConfig?.["tlsSpkiSha256"] === "string" ? api.pluginConfig["tlsSpkiSha256"] : undefined,
   });
+  const nativeGateway=api.runtime?.gateway;
+  if (typeof nativeGateway?.request === "function") services.core.setGenerationCanceller?.(async(accountId,conversationId,generationId)=> {
+    const account=await services.core.openGatewayAccount(accountId);
+    try {
+      const generation=account.conversations.workflow.get<{state:string}>(`generation:${generationId}`);
+      if (generation?.state === "completed" || generation?.state === "failed") return "ALREADY_COMPLETED";
+      const binding=account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`) as {value:string}|undefined;
+      if (!binding) return "OUTCOME_UNKNOWN";
+      const trusted=JSON.parse(binding.value) as {sessionKey:string};
+      // Pinned OpenClaw Runtime.gateway.request dispatches the real native stop RPC.
+      const result=await nativeGateway.request("chat.abort",{sessionKey:trusted.sessionKey},{timeoutMs:8000}) as {ok?:boolean;aborted?:boolean};
+      if (result.ok === true && result.aborted === true) return "CANCELLED";
+      const terminal=account.conversations.workflow.get<{state:string}>(`generation:${generationId}`);
+      return terminal?.state === "completed" || terminal?.state === "failed" ? "ALREADY_COMPLETED" : "OUTCOME_UNKNOWN";
+    } finally { account.close(); }
+  });
   api.registerChannel(Object.freeze({
     plugin: createOpenAndroidIntelligenceChannel(services.core),
   }));
@@ -368,5 +402,6 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
       handler: route.handler,
     });
   }
+  registerDeviceTools(api,services.core);
   registerManagementSurface(api, services);
 };

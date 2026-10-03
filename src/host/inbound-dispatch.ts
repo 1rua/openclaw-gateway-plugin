@@ -1,5 +1,7 @@
+import { HistoryMedia } from "../core/history-media.js";
 import type { GatewayAccount } from "../core/gateway-core.js";
 import { createHash } from "node:crypto";
+import { trustedDeviceTurn } from "./device-tools.js";
 import type { AgentMessageFailureCode, GatewayMessage } from "../core/conversation-port.js";
 
 export const OPENCLAW_CHANNEL_ID = "open-android-intelligence-gateway";
@@ -101,7 +103,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
     const resolveStorePath = channelRuntime.session.resolveStorePath as unknown as (store?: string, options?: Readonly<Record<string, unknown>>) => string;
     const recordInboundSession = channelRuntime.session.recordInboundSession as unknown as (facts: Readonly<Record<string, unknown>>) => Promise<void>;
 
-    const runResult = recordOf(await run({
+    const runResult = recordOf(await trustedDeviceTurn.run({accountId:gatewayAccountId,messageId:message.messageId},() => run({
       channel: OPENCLAW_CHANNEL_ID,
       accountId: channelAccountId,
       raw,
@@ -150,6 +152,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
             { agentId: route.agentId },
           );
           const timestamp = Number(value["timestamp"]);
+          account.conversations.bindHostSession(message.conversationId, { storePath, sessionKey: route.sessionKey });
           const messageText = String(value["rawText"] ?? "");
           const context = buildContext({
             channel: OPENCLAW_CHANNEL_ID,
@@ -202,12 +205,18 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
               deliver: async (payload?: Readonly<Record<string, unknown>>): Promise<void> => {
                 try {
                 const text = payload?.["text"];
-                if (typeof text === "string") {
-                  const messageId = `msg_${createHash("sha256").update(JSON.stringify([message.messageId, text])).digest("hex").slice(0, 40)}`;
+                const mediaUrls=Array.isArray(payload?.["mediaUrls"]) ? payload!["mediaUrls"] as unknown[] : typeof payload?.["mediaUrl"]==="string" ? [payload!["mediaUrl"]] : [];
+                if (mediaUrls.some(url=>typeof url!=="string" || /^https?:/iu.test(url))) throw new Error("AGENT_REPLY_UNSUPPORTED");
+                if (typeof text === "string" || mediaUrls.length>0) {
+                  const messageId = `msg_${createHash("sha256").update(JSON.stringify([message.messageId, text ?? "",mediaUrls])).digest("hex").slice(0, 40)}`;
+                  account.conversations.recordHistoryBinding(message.conversationId, messageId, "assistant", typeof text==="string" ? text : "");
+                  const workspace=recordOf(recordOf(recordOf(cfg)["agents"])["defaults"])["workspace"];
+                  const parts:Record<string,unknown>[]=[...(typeof text==="string" ? [{type:"text",text}] : []),...mediaUrls.map(url=>new HistoryMedia(account.store,account.accountId).register(message.conversationId,messageId,String(url),String(payload?.["mediaType"] ?? "application/octet-stream"),typeof workspace==="string" ? [workspace] : []))];
+                  parts.filter(p=>p.type==="attachment").forEach((part,i)=> { const key=`history-media-reply:${messageId}:${i}`;account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)").run(key,account.store.sealJson(part,key)); });
                   account.events.append({
                     eventType: "conversation.message.completed",
                     correlationId: message.messageId,
-                    payload: { conversationId: message.conversationId, messageId, sender: "assistant", parts: [{ type: "text", text }], text, timestamp: Date.now(), revision: 1 },
+                    payload: { conversationId: message.conversationId, messageId, sender: "assistant", parts, text:typeof text==="string" ? text : "", timestamp: Date.now(), revision: 1 },
                   });
                 } else if (payload !== undefined && Object.keys(payload).length > 0) {
                   // Media-only replies need the host attachment port. A reply
@@ -224,7 +233,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
           });
         },
       },
-    }));
+    })));
     if (runResult["dispatched"] !== true) {
       const admission = recordOf(runResult["admission"]);
       const reason = String(admission["reason"] ?? "");

@@ -229,6 +229,8 @@ const errorStatus = (response: GatewayResponse): number => {
  */
 const PRE_AUTH_PATHS: ReadonlySet<string> = new Set([
   "/open-android-intelligence/v2/negotiate",
+  "/open-android-intelligence/v2/sessions/invite/challenge",
+  "/open-android-intelligence/v2/sessions/invite/exchange","/open-android-intelligence/v2/pairings/exchange","/open-android-intelligence/v2/sessions/device/challenge","/open-android-intelligence/v2/sessions/device",
   "/open-android-intelligence/v2/sessions/password",
   "/open-android-intelligence/v2/sessions/refresh",
   "/open-android-intelligence/v2/sessions/current",
@@ -466,8 +468,11 @@ const streamGatewayEvents = async (
     request.once("aborted", close);
     response.once("close", close);
     const lifecycleTimer = setInterval(() => { if (!authorized()) close(); }, 1_000);
+    let registered = false;
     try {
       if (!authorized()) return rawFailureResponse({ verifiedRequest }, "SESSION_REVOKED");
+      services.core.setDeviceOnline?.(verifiedRequest.context!,true);
+      registered = true;
       const replay = account.events.readAfterWithSequence(cursor);
       let sequence = account.events.sequenceAfter(cursor);
       response.statusCode = 200;
@@ -510,6 +515,7 @@ const streamGatewayEvents = async (
       }
       return null;
     } finally {
+      if (registered) services.core.setDeviceOnline?.(verifiedRequest.context!,false);
       clearInterval(lifecycleTimer);
       unsubscribe();
       request.removeListener("aborted", close);
@@ -746,6 +752,11 @@ const routeDefinitions: readonly Readonly<{
   match: "exact" | "prefix";
 }>[] = Object.freeze([
   Object.freeze({ path: "/open-android-intelligence/v2/negotiate", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/invite/challenge", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/invite/exchange", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/pairings/exchange", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/device/challenge", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sessions/device", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/sessions/password", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/sessions/refresh", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/sessions/current", match: "exact" }),
@@ -753,6 +764,8 @@ const routeDefinitions: readonly Readonly<{
   // is not in `PRE_AUTH_PATHS`, so it reaches the host verifier's full §6.1
   // nine-header signature check instead of the logout route's waiver.
   Object.freeze({ path: "/open-android-intelligence/v2/pairings/current", match: "exact" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/pairings/current/", match: "prefix" }),
+  Object.freeze({ path: "/open-android-intelligence/v2/sync/snapshot", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/commands", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/events", match: "exact" }),
   Object.freeze({ path: "/open-android-intelligence/v2/conversations", match: "exact" }),

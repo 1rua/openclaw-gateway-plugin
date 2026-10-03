@@ -50,6 +50,7 @@ const createInput = (accountId: string, flags: ParsedFlags) => ({
 
 const parseCommand = (args: readonly string[], service: AdminService): AdminCommand | AdminResult => {
   const [first, second, third, ...rest] = args;
+  if (first === "pairing" && second === "invite" && third && rest.length===2 && rest[1]==="--confirm-local") return {command:"pairing.invite",accountId:third,gatewayUrl:rest[0]!,localConfirmation:true};
   if (first === "account" && (second === "create" || second === "reset-password") && third !== undefined) {
     const flags = parseFlags(rest);
     if (flags === undefined) return invalidArguments(service);
