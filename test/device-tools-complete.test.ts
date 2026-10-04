@@ -63,3 +63,31 @@ it("runs a trusted native tool through online TTL0 execution and ACKs only its a
     expect(core.isDeviceOnline!(ctx.accountId,ctx.deviceId,1)).toBe(false);
   }finally{account.close();}
 });
+
+it("does not reveal old request parameters to a newly authorized grant revision",async()=> {
+  const core=createGatewayCore({storageRoot:mkdtempSync(join(tmpdir(),"oai-request-fence-")),attachmentMasterKey:Buffer.alloc(32,5)});
+  const a=await core.openGatewayAccount("acct_fence");
+  let context:VerifiedRequestContext;
+  try {
+    a.credentials.setPassword("test-password");
+    const session=a.sessions.createPasswordSession({username:"acct_fence",password:"test-password",
+      installation:{installationId:"install_fence",displayName:"phone",devicePublicKey:"A".repeat(43)},correlationId:"cor_login"});
+    context={accountId:"acct_fence",deviceId:session.deviceId,sessionId:session.sessionId,requestId:"req_lookup",
+      correlationId:"cor_lookup",pairingGeneration:1,grantRevision:1};
+    const schema={type:"object",additionalProperties:false,properties:{secret:{type:"string"}}};
+    const binding={pluginId:"org.example.actual",authorKeyId:`sha256:${"a".repeat(64)}`,capabilityId:"org.example.actual.read",
+      capabilityVersion:"1.0.0",schemaSha256:gatewaySubschemaSha256(schema),schema,risk:"read" as const};
+    a.deviceRequests.capabilities.register(context.deviceId,1,1,[binding]);
+    a.deviceRequests.enqueue({...context,requestId:"request_old",risk:"read",capability:{id:binding.capabilityId,version:"1.0.0"},
+      provider:{pluginId:binding.pluginId,authorKeyId:binding.authorKeyId},parameters:{secret:"private-request"}});
+  } finally { a.close(); }
+  const target="/open-android-intelligence/v2/device-requests/request_old";
+  expect((await core.handle({method:"GET",target,context})).data).toHaveProperty("request.parameters.secret","private-request");
+  const account=await core.openGatewayAccount(context.accountId);
+  try { account.pairings.bumpGrantRevision({deviceId:context.deviceId,correlationId:"cor_bump"}); }
+  finally { account.close(); }
+  const result=await core.handle({method:"GET",target,context:{...context,requestId:"req_lookup_new",grantRevision:2}});
+  expect(result.error).toMatchObject({code:"GRANT_STALE"});
+  expect(result).not.toHaveProperty("data");
+  expect(JSON.stringify(result)).not.toContain("private-request");
+});

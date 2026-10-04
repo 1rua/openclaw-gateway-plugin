@@ -131,11 +131,23 @@ const negotiationBody = (overrides: Record<string, unknown> = {}) => ({
     attachments: ["staged-sha256-v1"],
     events: ["sse-cursor-v1"],
     deviceRequests: ["risk-queue-v1"],
-    conversationUi: ["agent-command-catalog-v1", "agent-command-new-v1", "agent-approval-cards-v1", "message-batches-v1"],
+    conversationUi: ["agent-command-catalog-v1", "agent-command-new-v1", "agent-approval-cards-v1", "message-batches-v1", "newline-v1"],
   },
   schemaHashes: { core: coreSchemaHash() },
   ...overrides,
 });
+
+it.each([{offered:[]},{offered:["message-batches-v1"]},{offered:["newline-v1"]},{offered:["message-batches-v1","newline-v1"]}])(
+  "intersects the offered batch and join-mode features $offered",async ({offered}) => {
+    const core=createGatewayCore({attachmentMasterKey:Buffer.alloc(32,0x42),storageRoot:tempRoot()});
+    const body=negotiationBody();
+    const result=await call(exposureFor({core}),"/open-android-intelligence/v2/negotiate",
+      {...body,features:{...body.features,conversationUi:offered}});
+    expect(result.statusCode).toBe(200);
+    const data=result.body["data"] as {features:{conversationUi?:string[]}};
+    expect(data.features.conversationUi ?? []).toEqual(offered);
+  },
+);
 
 describe("OpenClaw Gateway capabilities", () => {
   it("negotiates with the real schema digest and advertises only implemented capabilities", async () => {
@@ -165,7 +177,7 @@ describe("OpenClaw Gateway capabilities", () => {
     // outright so the UI says "this Gateway has no approval cards" instead of
     // painting a card whose decision could never be submitted.
     expect(JSON.stringify(features)).not.toContain("agent-approval-cards-v1");
-    expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1","message-batches-v1"]);
+    expect(features["conversationUi"]).toEqual(["agent-command-catalog-v1","message-batches-v1","newline-v1"]);
     expect(data["limits"]).toMatchObject({ attachmentTtlSeconds: DEFAULT_ATTACHMENT_POLICY.attachmentTtlSeconds });
     expect(data["limits"]).not.toHaveProperty("maxSingleAttachmentBytes");
     expect(data["limits"]).not.toHaveProperty("maxMessageAttachmentBytes");

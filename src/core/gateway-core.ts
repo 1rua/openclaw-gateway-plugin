@@ -154,7 +154,7 @@ export const SUPPORTED_AUTH = Object.freeze(["password", "account-invitation", "
 // `agent-approval-cards-v1` (contract §7.2) is deliberately absent because this
 // host has no approval-card endpoint, durable decision record or decision
 // handler. A live SSE status channel does not implement those missing actions.
-export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1", "message-batches-v1"]);
+export const SUPPORTED_CONVERSATION_UI = Object.freeze(["agent-command-catalog-v1", "message-batches-v1", "newline-v1"]);
 export const REQUIRED_FEATURES = Object.freeze({
   messages: "chat-v1",
   attachments: "staged-sha256-v1",
@@ -1116,6 +1116,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             if (deviceGet?.[1]) {
               const row = account.deviceRequests.get(deviceGet[1]);
               if (row.deviceId !== request.context!.deviceId || row.pairingGeneration !== request.context!.pairingGeneration) throw new Error("PAIRING_GENERATION_STALE");
+              if (row.grantRevision !== request.context!.grantRevision) throw new Error("GRANT_STALE");
               const raw = account.store.database.prepare("SELECT capability_json,provider_json,parameters_json,created_at FROM device_requests WHERE request_id=?").get(row.requestId) as Record<string,unknown>;
               return success(request,{ request:{...row,capability:JSON.parse(String(raw.capability_json)),provider:JSON.parse(String(raw.provider_json)),
                 parameters:raw.parameters_json ? account.store.openJson(String(raw.parameters_json),`device-request:${row.requestId}`) : {},createdAt:raw.created_at,
