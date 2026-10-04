@@ -1103,6 +1103,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               const body = bodyRecord(request.body);
               if (Object.keys(body).sort().join() !== ["bindings","expectedGrantRevision","localGrantRevision"].sort().join()
                 || body.expectedGrantRevision !== request.context!.grantRevision || !Number.isSafeInteger(body.localGrantRevision)) throw new Error("GRANT_STALE");
+              account.deviceRequests.capabilities.validatePublication(
+                body.bindings as Parameters<typeof account.deviceRequests.capabilities.register>[3]);
               const digest = `sha256:${createHash("sha256").update(canonicalJson({ bindings: body.bindings, localGrantRevision: body.localGrantRevision })).digest("hex")}`;
               const key = `device-grant-digest:${request.context!.deviceId}`;
               const prior = account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(key) as { value: string } | undefined;
