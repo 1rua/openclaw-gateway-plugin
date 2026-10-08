@@ -37,8 +37,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Verify the generated contract snapshot
-        run: npm run contract:check
+      - name: Generate and verify the pinned contract snapshot
+        run: |
+          npm run contract:generate -- --output "$RUNNER_TEMP/generated-contract"
+          diff -qr "$RUNNER_TEMP/generated-contract/gateway-contract" gateway-contract
+          npm run contract:check
         env:
           OPEN_ANDROID_GATEWAY_CONTRACT_ROOT: ${{ github.workspace }}/.contract-source/gateway-contract
 
@@ -53,3 +56,12 @@ jobs:
         run: |
           OPENCLAW_HOME="$RUNNER_TEMP/openclaw-home" OPENCLAW_STATE_DIR="$RUNNER_TEMP/openclaw-state" npm run plugin:install-smoke
           OPENCLAW_HOME="$RUNNER_TEMP/openclaw-home" OPENCLAW_STATE_DIR="$RUNNER_TEMP/openclaw-state" npm run plugin:inspect-smoke
+
+      - name: Install the exact pushed Git commit in OpenClaw
+        if: github.event_name == 'push'
+        run: |
+          OPENCLAW_HOME="$RUNNER_TEMP/openclaw-git-home" OPENCLAW_STATE_DIR="$RUNNER_TEMP/openclaw-git-state" \
+            ./node_modules/.bin/openclaw plugins install "git:github.com/1rua/openclaw-gateway-plugin@$GITHUB_SHA" --force
+          OPENCLAW_HOME="$RUNNER_TEMP/openclaw-git-home" OPENCLAW_STATE_DIR="$RUNNER_TEMP/openclaw-git-state" \
+            ./node_modules/.bin/openclaw plugins inspect open-android-intelligence-gateway --runtime --json \
+            | node tools/assert-openclaw-runtime.mjs

@@ -23,7 +23,15 @@ describe("OpenClaw native package entry", () => {
       "mobile.sms.query", "mobile.sms.subscribe", "mobile.sms.unsubscribe",
     ]);
     expect(hostManifest.id).toBe(OPENCLAW_PLUGIN.id);
+    expect(hostManifest.version).toBe(packageMetadata.version);
+    expect(hostManifest.channels).toEqual(["open-android-intelligence-gateway"]);
+    expect(hostManifest.channelConfigs["open-android-intelligence-gateway"]?.schema).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    });
     expect(hostManifest.contracts.tools).toEqual(["open_android_device"]);
+    expect(packageMetadata.openclaw.channel.id).toBe(hostManifest.channels[0]);
     expect(packageMetadata.openclaw.extensions).toEqual(["./adapter.ts"]);
     expect(packageMetadata.openclaw.runtimeExtensions).toEqual(["./runtime/adapter.js"]);
   });

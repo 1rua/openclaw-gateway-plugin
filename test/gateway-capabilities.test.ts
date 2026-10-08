@@ -393,6 +393,7 @@ describe("OpenClaw Gateway capabilities", () => {
   it("declares capabilities and security boundaries honestly", async () => {
     const manifest = (await import("../adapter.js")).OPENCLAW_PLUGIN_MANIFEST;
 
+    expect(staticPluginManifest).toEqual(manifest);
     expect(manifest.capabilitySchemaHash).toBe(coreSchemaHash());
     expect(staticPluginManifest.capabilitySchemaHash).toBe(coreSchemaHash());
     expect(staticPluginManifest.protocolVersion).toBe("2.1.0");

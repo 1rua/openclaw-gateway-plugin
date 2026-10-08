@@ -5,7 +5,7 @@ OpenClaw 原生 Gateway 插件，将 Android 设备连接到 Open Android Intell
 ## 安装
 
 ```bash
-openclaw plugins install git:github.com/1rua/openclaw-gateway-plugin@v1.0.0
+openclaw plugins install git:github.com/1rua/openclaw-gateway-plugin@v1.0.1
 ```
 
 首次启用后检查插件注册状态：
@@ -29,6 +29,7 @@ openclaw plugins inspect open-android-intelligence-gateway --runtime --json
 ```bash
 npm ci
 npm run contract:check
+npm run contract:generate -- --output /tmp/openclaw-generated-contract
 npm run typecheck
 npm test
 npm run build
@@ -36,7 +37,14 @@ npm run plugin:install-smoke
 npm run plugin:inspect-smoke
 ```
 
-`runtime/` contains the checked-in JavaScript entry used by fixed Git installs. `npm run build` regenerates it from the TypeScript source, and CI checks that the checked-in output matches.
+`runtime/` 保存固定 Git 安装使用的 JavaScript 入口。`npm run build` 从 TypeScript 源码重新生成该目录，CI 会检查生成结果与已跟踪内容一致。
+
+CI 从 `contract-pin.json` 指向的主仓提交生成契约文件，再将生成结果与包内 `gateway-contract/` 逐项比较。手动生成时，输出目录必须尚不存在：
+
+```bash
+npm run contract:generate -- --output /tmp/openclaw-generated-contract
+diff -qr /tmp/openclaw-generated-contract/gateway-contract gateway-contract
+```
 
 契约快照验证需要一个检出 `contract-pin.json` 所指向完整提交的应用仓库：
 
