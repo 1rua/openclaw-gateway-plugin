@@ -39,6 +39,7 @@ jobs:
 
       - name: Generate and verify the pinned contract snapshot
         run: |
+          python3 tools/test_contract_source.py
           npm run contract:generate -- --output "$RUNNER_TEMP/generated-contract"
           diff -qr "$RUNNER_TEMP/generated-contract/gateway-contract" gateway-contract
           npm run contract:check

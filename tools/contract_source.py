@@ -51,6 +51,20 @@ def _git(repository_root: Path, *arguments: str, text: bool = False) -> subproce
     )
 
 
+def parse_contract_pin(value: object) -> tuple[str, str]:
+    """读取并验证已解析的 pin 对象。"""
+
+    if not isinstance(value, dict):
+        raise ContractPinError("contract-pin.json 顶层必须是 JSON 对象")
+    repository = str(value.get("repository", "")).strip()
+    revision = str(value.get("revision", "")).strip()
+    if repository != EXPECTED_REPOSITORY:
+        raise ContractPinError(f"repository 必须为 {EXPECTED_REPOSITORY}")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ContractPinError("revision 必须是 40 位小写十六进制完整提交 SHA")
+    return repository, revision
+
+
 def load_pinned_contract(plugin_root: Path) -> PinnedContract:
     """确认源目录、Git 工作树和完整提交 pin 指向同一份契约。"""
 
@@ -60,12 +74,7 @@ def load_pinned_contract(plugin_root: Path) -> PinnedContract:
     except (OSError, ValueError) as error:
         raise ContractPinError(f"无法读取 {pin_file}: {error}") from error
 
-    repository = str(pin.get("repository", "")).strip()
-    revision = str(pin.get("revision", "")).strip()
-    if repository != EXPECTED_REPOSITORY:
-        raise ContractPinError(f"repository 必须为 {EXPECTED_REPOSITORY}")
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise ContractPinError("revision 必须是 40 位小写十六进制完整提交 SHA")
+    _, revision = parse_contract_pin(pin)
 
     configured_root = os.environ.get("OPEN_ANDROID_GATEWAY_CONTRACT_ROOT", "").strip()
     source_root = (

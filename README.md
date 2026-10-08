@@ -28,9 +28,10 @@ openclaw plugins inspect open-android-intelligence-gateway --runtime --json
 
 ```bash
 npm ci
+npm run typecheck
+python3 tools/test_contract_source.py
 npm run contract:check
 npm run contract:generate -- --output /tmp/openclaw-generated-contract
-npm run typecheck
 npm test
 npm run build
 npm run plugin:install-smoke
