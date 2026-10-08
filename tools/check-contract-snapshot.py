@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
-"""Verify the generated Gateway Protocol snapshot against its pinned commit."""
+"""检查包内契约快照是否与主仓固定提交一致。"""
 
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-import re
-import subprocess
 import sys
 from pathlib import Path
 
+from contract_source import CONTRACT_PATHS, ContractPinError, load_pinned_contract
+
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-PIN_FILE = PLUGIN_ROOT / "contract-pin.json"
 SNAPSHOT_ROOT = PLUGIN_ROOT / "gateway-contract"
-CONTRACT_PATHS = (
-    "core-dispatched-schemas.json",
-    "schemas",
-    "src",
-    "vectors",
-)
-EXPECTED_REPOSITORY = "https://github.com/1rua/open-android-intelligence.git"
 
 
 def fail(message: str) -> int:
@@ -46,60 +36,11 @@ def files_under(root: Path, relative: str) -> dict[str, str] | None:
 
 def main() -> int:
     try:
-        pin = json.loads(PIN_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        return fail(f"无法读取 {PIN_FILE}: {error}")
-
-    repository = str(pin.get("repository", "")).strip()
-    revision = str(pin.get("revision", "")).strip()
-    if repository != EXPECTED_REPOSITORY:
-        return fail(f"repository 必须为 {EXPECTED_REPOSITORY}")
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        return fail("revision 必须是 40 位小写十六进制完整提交 SHA")
-
-    configured_root = os.environ.get("OPEN_ANDROID_GATEWAY_CONTRACT_ROOT", "").strip()
-    source_root = Path(configured_root).expanduser() if configured_root else PLUGIN_ROOT / ".contract-source" / "gateway-contract"
-    if not source_root.is_dir():
-        return fail(
-            f"找不到 pin 对应的 gateway-contract：{source_root}；"
-            "请检出 contract-pin.json 所指提交，或设置 OPEN_ANDROID_GATEWAY_CONTRACT_ROOT"
-        )
-
-    try:
-        source_root = source_root.resolve(strict=True)
-        repository_root_result = subprocess.run(
-            ["git", "-C", str(source_root.parent), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            check=False,
-            text=True,
-        )
-        if repository_root_result.returncode != 0:
-            return fail(f"契约路径不属于 Git 工作树：{source_root}")
-        source_repo = Path(repository_root_result.stdout.strip()).resolve(strict=True)
-        expected_source_root = (source_repo / "gateway-contract").resolve(strict=True)
-        if source_root != expected_source_root:
-            return fail(f"契约路径必须是 pin 仓库根目录下的 gateway-contract：{expected_source_root}")
-    except OSError as error:
-        return fail(f"无法定位契约所属仓库：{error}")
-
-    present = subprocess.run(
-        ["git", "-C", str(source_repo), "cat-file", "-e", f"{revision}^{{commit}}"],
-        capture_output=True,
-    )
-    if present.returncode != 0:
-        return fail(f"契约 pin 提交 {revision} 不在当前检出历史中")
-    try:
-        unchanged = subprocess.run(
-            [
-                "git", "-C", str(source_repo), "diff", "--quiet", revision, "--",
-                *(f"gateway-contract/{path}" for path in CONTRACT_PATHS),
-            ],
-            capture_output=True,
-        )
-    except OSError as error:
-        return fail(f"无法比较契约 pin 内容：{error}")
-    if unchanged.returncode != 0:
-        return fail(f"当前检出的契约内容与 pin 提交 {revision} 不一致")
+        pinned_contract = load_pinned_contract(PLUGIN_ROOT)
+    except ContractPinError as error:
+        return fail(str(error))
+    revision = pinned_contract.revision
+    source_root = pinned_contract.root
 
     try:
         for relative in CONTRACT_PATHS:
