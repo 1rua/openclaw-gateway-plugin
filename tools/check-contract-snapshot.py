@@ -65,7 +65,23 @@ def main() -> int:
             "请检出 contract-pin.json 所指提交，或设置 OPEN_ANDROID_GATEWAY_CONTRACT_ROOT"
         )
 
-    source_repo = source_root.parent
+    try:
+        source_root = source_root.resolve(strict=True)
+        repository_root_result = subprocess.run(
+            ["git", "-C", str(source_root.parent), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        if repository_root_result.returncode != 0:
+            return fail(f"契约路径不属于 Git 工作树：{source_root}")
+        source_repo = Path(repository_root_result.stdout.strip()).resolve(strict=True)
+        expected_source_root = (source_repo / "gateway-contract").resolve(strict=True)
+        if source_root != expected_source_root:
+            return fail(f"契约路径必须是 pin 仓库根目录下的 gateway-contract：{expected_source_root}")
+    except OSError as error:
+        return fail(f"无法定位契约所属仓库：{error}")
+
     present = subprocess.run(
         ["git", "-C", str(source_repo), "cat-file", "-e", f"{revision}^{{commit}}"],
         capture_output=True,
