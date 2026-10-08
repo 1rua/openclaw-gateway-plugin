@@ -66,17 +66,24 @@ def main() -> int:
         )
 
     source_repo = source_root.parent
+    present = subprocess.run(
+        ["git", "-C", str(source_repo), "cat-file", "-e", f"{revision}^{{commit}}"],
+        capture_output=True,
+    )
+    if present.returncode != 0:
+        return fail(f"契约 pin 提交 {revision} 不在当前检出历史中")
     try:
-        checked_out_revision = subprocess.run(
-            ["git", "-C", str(source_repo), "rev-parse", "HEAD"],
-            check=True,
+        unchanged = subprocess.run(
+            [
+                "git", "-C", str(source_repo), "diff", "--quiet", revision, "--",
+                *(f"gateway-contract/{path}" for path in CONTRACT_PATHS),
+            ],
             capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as error:
-        return fail(f"无法验证契约检出提交：{error}")
-    if checked_out_revision != revision:
-        return fail(f"契约检出为 {checked_out_revision}，pin 要求 {revision}")
+        )
+    except OSError as error:
+        return fail(f"无法比较契约 pin 内容：{error}")
+    if unchanged.returncode != 0:
+        return fail(f"当前检出的契约内容与 pin 提交 {revision} 不一致")
 
     try:
         for relative in CONTRACT_PATHS:
