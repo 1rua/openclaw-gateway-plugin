@@ -24,7 +24,7 @@ openclaw plugins inspect open-android-intelligence-gateway --runtime --json
 
 ## 开发与验证
 
-使用 Node.js 24.18.0 与 npm 11.16.0：
+使用 Node.js 24.18.0、npm 11.16.0 与 Python 3.12：
 
 ```bash
 npm ci

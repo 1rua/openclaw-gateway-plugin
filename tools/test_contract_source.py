@@ -28,6 +28,12 @@ class ParseContractPinTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractPinError, "40 位小写十六进制"):
             parse_contract_pin({"repository": EXPECTED_REPOSITORY, "revision": "A" * 40})
 
+    def test_rejects_non_string_fields(self) -> None:
+        with self.assertRaisesRegex(ContractPinError, "repository 必须是字符串"):
+            parse_contract_pin({"repository": 1, "revision": "a" * 40})
+        with self.assertRaisesRegex(ContractPinError, "revision 必须是字符串"):
+            parse_contract_pin({"repository": EXPECTED_REPOSITORY, "revision": int("1" * 40)})
+
 
 if __name__ == "__main__":
     unittest.main()

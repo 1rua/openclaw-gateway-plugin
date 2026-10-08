@@ -56,8 +56,14 @@ def parse_contract_pin(value: object) -> tuple[str, str]:
 
     if not isinstance(value, dict):
         raise ContractPinError("contract-pin.json 顶层必须是 JSON 对象")
-    repository = str(value.get("repository", "")).strip()
-    revision = str(value.get("revision", "")).strip()
+    repository_value = value.get("repository")
+    revision_value = value.get("revision")
+    if not isinstance(repository_value, str):
+        raise ContractPinError("repository 必须是字符串")
+    if not isinstance(revision_value, str):
+        raise ContractPinError("revision 必须是字符串")
+    repository = repository_value.strip()
+    revision = revision_value.strip()
     if repository != EXPECTED_REPOSITORY:
         raise ContractPinError(f"repository 必须为 {EXPECTED_REPOSITORY}")
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
