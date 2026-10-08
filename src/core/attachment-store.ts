@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
-import { nextAttachmentState, type AttachmentState } from "../../../../gateway-contract/src/state-machines.js";
+import { nextAttachmentState, type AttachmentState } from "../../gateway-contract/src/state-machines.js";
 import type { AccountPaths } from "./account-paths.js";
 import type { GatewayAccountStore } from "./account-store.js";
 import { DEFAULT_ATTACHMENT_POLICY, type AttachmentPolicy } from "./attachment-policy.js";

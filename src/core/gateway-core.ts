@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 import canonicalize from "canonicalize";
 
-import { coreSchemaHash } from "../../../../gateway-contract/src/core-schema-hash.js";
-import { validateGatewayValue, type GatewaySchemaName } from "../../../../gateway-contract/src/schema-registry.js";
+import { coreSchemaHash } from "../../gateway-contract/src/core-schema-hash.js";
+import { validateGatewayValue, type GatewaySchemaName } from "../../gateway-contract/src/schema-registry.js";
 import { accountPaths, defaultOpenClawGatewayRoot, type AccountPaths } from "./account-paths.js";
 import { openAccountStore, type GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";

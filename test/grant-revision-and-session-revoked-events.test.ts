@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { validateGatewayValue } from "../../../gateway-contract/src/schema-registry.js";
+import { validateGatewayValue } from "../gateway-contract/src/schema-registry.js";
 import { createGatewayCore, type GatewayCore } from "../src/core/gateway-core.js";
 
 const tempRoot = (): string => mkdtempSync(join(tmpdir(), "open-android-intelligence-openclaw-grant-"));

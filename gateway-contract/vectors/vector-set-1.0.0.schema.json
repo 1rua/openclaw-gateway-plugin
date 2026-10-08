@@ -1,0 +1,597 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/vector-set-1.0.0.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "protocolVersion", "vectorSet", "cases"],
+  "properties": {
+    "formatVersion": { "const": "1.0.0" },
+    "protocolVersion": { "const": "2.1" },
+    "vectorSet": {
+      "enum": [
+        "request-signatures",
+        "protocol-negotiation",
+        "auth-sessions",
+        "attachments",
+        "sse-events",
+        "device-requests"
+      ]
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/requestTargetCase" },
+          { "$ref": "#/$defs/requestSignatureCase" },
+          { "$ref": "#/$defs/schemaValidateCase" },
+          { "$ref": "#/$defs/schemaValidateDispatchedCase" },
+          { "$ref": "#/$defs/attachmentTransitionCase" },
+          { "$ref": "#/$defs/deviceTransitionCase" },
+          { "$ref": "#/$defs/deviceMaximumQueueCase" }
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["vectorSet"],
+        "properties": { "vectorSet": { "const": "request-signatures" } }
+      },
+      "then": {
+        "properties": {
+          "cases": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "$ref": "#/$defs/requestTargetCase" },
+                { "$ref": "#/$defs/requestSignatureCase" }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["vectorSet"],
+        "properties": { "vectorSet": { "const": "protocol-negotiation" } }
+      },
+      "then": {
+        "properties": {
+          "cases": { "type": "array", "items": { "$ref": "#/$defs/schemaValidateCase" } }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["vectorSet"],
+        "properties": { "vectorSet": { "const": "auth-sessions" } }
+      },
+      "then": {
+        "properties": {
+          "cases": { "type": "array", "items": { "$ref": "#/$defs/schemaValidateCase" } }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["vectorSet"],
+        "properties": { "vectorSet": { "const": "attachments" } }
+      },
+      "then": {
+        "properties": {
+          "cases": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "$ref": "#/$defs/schemaValidateCase" },
+                { "$ref": "#/$defs/attachmentTransitionCase" }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["vectorSet"],
+        "properties": { "vectorSet": { "const": "sse-events" } }
+      },
+      "then": {
+        "properties": {
+          "cases": { "type": "array", "items": { "$ref": "#/$defs/schemaValidateDispatchedCase" } }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["vectorSet"],
+        "properties": { "vectorSet": { "const": "device-requests" } }
+      },
+      "then": {
+        "properties": {
+          "cases": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "$ref": "#/$defs/schemaValidateCase" },
+                { "$ref": "#/$defs/schemaValidateDispatchedCase" },
+                { "$ref": "#/$defs/deviceTransitionCase" },
+                { "$ref": "#/$defs/deviceMaximumQueueCase" }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "wireId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "lowercaseHexBytes": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})*$"
+    },
+    "lowercaseHex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})+$"
+    },
+    "method": { "enum": ["GET", "POST", "PUT", "DELETE"] },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{21}[AQgw]$"
+    },
+    "schemaName": {
+      "enum": [
+        "negotiate.request",
+        "negotiate.response",
+        "session.password",
+        "session.refresh",
+        "session.device",
+        "session.logout",
+        "session.unpair",
+        "session.pairing",
+        "session.pairingSummary",
+        "conversation.create",
+        "message.create",
+        "attachment.create",
+        "event",
+        "event.sessionRevokedPayload",
+        "event.pairingGrantChangedPayload",
+        "device.request",
+        "device.request.result",
+        "device.request.resultRequest",
+        "response.success",
+        "response.failure"
+      ]
+    },
+    "attachmentState": {
+      "enum": [
+        "created",
+        "uploading",
+        "verified",
+        "delivered",
+        "acknowledged",
+        "failed",
+        "expired",
+        "deleted"
+      ]
+    },
+    "attachmentEvent": {
+      "enum": [
+        "begin_upload",
+        "verify",
+        "deliver",
+        "acknowledge",
+        "fail",
+        "expire",
+        "cleanup"
+      ]
+    },
+    "deviceRequestState": {
+      "enum": [
+        "pending",
+        "claimed",
+        "cancel_requested",
+        "succeeded",
+        "failed",
+        "denied",
+        "cancelled",
+        "expired",
+        "outcome_unknown"
+      ]
+    },
+    "deviceRequestEvent": {
+      "enum": [
+        "claim",
+        "cancel",
+        "expire",
+        "result_succeeded",
+        "result_failed",
+        "result_denied",
+        "result_cancelled",
+        "result_outcome_unknown",
+        "recover_outcome_unknown"
+      ]
+    },
+    "risk": {
+      "enum": ["read", "sync", "write", "high-privilege-ephemeral"]
+    },
+    "schemaValidateError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "code"],
+      "properties": {
+        "outcome": { "const": "error" },
+        "code": { "const": "SCHEMA_INVALID" }
+      }
+    },
+    "schemaValidateDispatchedError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "code"],
+      "properties": {
+        "outcome": { "const": "error" },
+        "code": { "const": "SCHEMA_INVALID" }
+      }
+    },
+    "requestTargetInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target"],
+      "properties": { "target": { "type": "string" } }
+    },
+    "requestTargetValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "value"],
+      "properties": {
+        "outcome": { "const": "value" },
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["canonicalTarget"],
+          "properties": { "canonicalTarget": { "type": "string" } }
+        }
+      }
+    },
+    "requestTargetError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "code"],
+      "properties": {
+        "outcome": { "const": "error" },
+        "code": { "const": "SCHEMA_INVALID" }
+      }
+    },
+    "requestTargetExpected": {
+      "oneOf": [
+        { "$ref": "#/$defs/requestTargetValue" },
+        { "$ref": "#/$defs/requestTargetError" }
+      ]
+    },
+    "requestTargetCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "request.target" },
+        "input": { "$ref": "#/$defs/requestTargetInput" },
+        "expected": { "$ref": "#/$defs/requestTargetExpected" }
+      }
+    },
+    "requestSignatureInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "target",
+        "accountId",
+        "deviceId",
+        "sessionId",
+        "requestId",
+        "timestamp",
+        "nonce",
+        "bodyHex"
+      ],
+      "properties": {
+        "method": { "$ref": "#/$defs/method" },
+        "target": { "type": "string" },
+        "accountId": { "$ref": "#/$defs/wireId" },
+        "deviceId": { "$ref": "#/$defs/wireId" },
+        "sessionId": { "$ref": "#/$defs/wireId" },
+        "requestId": { "$ref": "#/$defs/wireId" },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "nonce": { "$ref": "#/$defs/nonce" },
+        "bodyHex": { "$ref": "#/$defs/lowercaseHexBytes" }
+      }
+    },
+    "requestSignatureValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "value"],
+      "properties": {
+        "outcome": { "const": "value" },
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["preimageHex"],
+          "properties": { "preimageHex": { "$ref": "#/$defs/lowercaseHex" } }
+        }
+      }
+    },
+    "requestSignatureError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "code"],
+      "properties": {
+        "outcome": { "const": "error" },
+        "code": { "enum": ["SCHEMA_INVALID", "NON_CANONICAL_TARGET"] }
+      }
+    },
+    "requestSignatureExpected": {
+      "oneOf": [
+        { "$ref": "#/$defs/requestSignatureValue" },
+        { "$ref": "#/$defs/requestSignatureError" }
+      ]
+    },
+    "requestSignatureCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "request.signature" },
+        "input": { "$ref": "#/$defs/requestSignatureInput" },
+        "expected": { "$ref": "#/$defs/requestSignatureExpected" }
+      }
+    },
+    "schemaValidateInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaName", "value"],
+      "properties": {
+        "schemaName": { "$ref": "#/$defs/schemaName" },
+        "value": {}
+      }
+    },
+    "validValueExpected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "value"],
+      "properties": {
+        "outcome": { "const": "value" },
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valid"],
+          "properties": { "valid": { "const": true } }
+        }
+      }
+    },
+    "schemaValidateExpected": {
+      "oneOf": [
+        { "$ref": "#/$defs/validValueExpected" },
+        { "$ref": "#/$defs/schemaValidateError" }
+      ]
+    },
+    "schemaValidateCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "schema.validate" },
+        "input": { "$ref": "#/$defs/schemaValidateInput" },
+        "expected": { "$ref": "#/$defs/schemaValidateExpected" }
+      }
+    },
+    "dispatchEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "eventType"],
+      "properties": {
+        "kind": { "const": "event" },
+        "eventType": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dispatchDeviceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "device.request" } }
+    },
+    "dispatchResponseSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operation", "status"],
+      "properties": {
+        "kind": { "const": "response.success" },
+        "operation": { "type": "string", "minLength": 1 },
+        "status": { "type": "integer" }
+      }
+    },
+    "dispatchResponseFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "response.failure" } }
+    },
+    "dispatch": {
+      "oneOf": [
+        { "$ref": "#/$defs/dispatchEvent" },
+        { "$ref": "#/$defs/dispatchDeviceRequest" },
+        { "$ref": "#/$defs/dispatchResponseSuccess" },
+        { "$ref": "#/$defs/dispatchResponseFailure" }
+      ]
+    },
+    "schemaValidateDispatchedInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixtureBindingSetId", "dispatch", "value"],
+      "properties": {
+        "fixtureBindingSetId": { "const": "gateway-core-fixtures-v1" },
+        "dispatch": { "$ref": "#/$defs/dispatch" },
+        "value": {}
+      }
+    },
+    "schemaValidateDispatchedExpected": {
+      "oneOf": [
+        { "$ref": "#/$defs/validValueExpected" },
+        { "$ref": "#/$defs/schemaValidateDispatchedError" }
+      ]
+    },
+    "schemaValidateDispatchedCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "schema.validate_dispatched" },
+        "input": { "$ref": "#/$defs/schemaValidateDispatchedInput" },
+        "expected": { "$ref": "#/$defs/schemaValidateDispatchedExpected" }
+      }
+    },
+    "attachmentTransitionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "event"],
+      "properties": {
+        "current": { "$ref": "#/$defs/attachmentState" },
+        "event": { "$ref": "#/$defs/attachmentEvent" }
+      }
+    },
+    "attachmentTransitionValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "value"],
+      "properties": {
+        "outcome": { "const": "value" },
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nextState"],
+          "properties": { "nextState": { "$ref": "#/$defs/attachmentState" } }
+        }
+      }
+    },
+    "attachmentTransitionExpected": {
+      "oneOf": [
+        { "$ref": "#/$defs/attachmentTransitionValue" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "code"],
+          "properties": {
+            "outcome": { "const": "error" },
+            "code": { "const": "INVALID_STATE_TRANSITION" }
+          }
+        }
+      ]
+    },
+    "attachmentTransitionCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "attachment.transition" },
+        "input": { "$ref": "#/$defs/attachmentTransitionInput" },
+        "expected": { "$ref": "#/$defs/attachmentTransitionExpected" }
+      }
+    },
+    "deviceTransitionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "event"],
+      "properties": {
+        "current": { "$ref": "#/$defs/deviceRequestState" },
+        "event": { "$ref": "#/$defs/deviceRequestEvent" }
+      }
+    },
+    "deviceTransitionValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "value"],
+      "properties": {
+        "outcome": { "const": "value" },
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nextState"],
+          "properties": { "nextState": { "$ref": "#/$defs/deviceRequestState" } }
+        }
+      }
+    },
+    "deviceTransitionExpected": {
+      "oneOf": [
+        { "$ref": "#/$defs/deviceTransitionValue" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "code"],
+          "properties": {
+            "outcome": { "const": "error" },
+            "code": { "const": "INVALID_STATE_TRANSITION" }
+          }
+        }
+      ]
+    },
+    "deviceTransitionCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "device.transition" },
+        "input": { "$ref": "#/$defs/deviceTransitionInput" },
+        "expected": { "$ref": "#/$defs/deviceTransitionExpected" }
+      }
+    },
+    "deviceMaximumQueueInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk"],
+      "properties": { "risk": { "$ref": "#/$defs/risk" } }
+    },
+    "deviceMaximumQueueExpected": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "value"],
+          "properties": {
+            "outcome": { "const": "value" },
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["seconds"],
+              "properties": { "seconds": { "enum": [86400, 900, 0] } }
+            }
+          }
+        },
+        { "$ref": "#/$defs/schemaValidateError" }
+      ]
+    },
+    "deviceMaximumQueueCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "expected"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wireId" },
+        "operation": { "const": "device.maximum_queue_seconds" },
+        "input": { "$ref": "#/$defs/deviceMaximumQueueInput" },
+        "expected": { "$ref": "#/$defs/deviceMaximumQueueExpected" }
+      }
+    }
+  }
+}

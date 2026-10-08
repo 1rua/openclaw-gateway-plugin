@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/conversation.schema.json",
+  "$defs": {
+    "create": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientConversationId"],
+      "properties": {
+        "clientConversationId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "title": { "type": "string" }
+      }
+    },
+    "messageCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientMessageId", "text", "attachments"],
+      "properties": {
+        "clientMessageId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "text": { "type": "string" },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["attachmentId"],
+            "properties": {
+              "attachmentId": {
+                "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+              }
+            }
+          }
+        }
+      }
+    },
+    "commandCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command", "description"],
+            "properties": {
+              "command": {
+                "type": "string",
+                "pattern": "^/[a-z0-9_-]+$"
+              },
+              "description": { "type": "string", "minLength": 1 },
+              "argumentHint": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "generationCancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientMessageId"],
+      "properties": {
+        "clientMessageId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        }
+      }
+    },
+    "mirrorSync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conversationId", "sinceSeq"],
+      "properties": {
+        "conversationId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "sinceSeq": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -15,17 +15,17 @@ import {
   type GatewaySubschemaCatalogEntry,
   type TrustedGatewayDispatch,
   type VerifiedSchemaBindingSet,
-} from "../../../../gateway-contract/src/dispatched-schema-validator.js";
+} from "../../gateway-contract/src/dispatched-schema-validator.js";
 import {
   canonicalRequestSignatureInput,
   canonicalRequestTarget,
   type SignedRequestInput,
   type SignedRequestMethod,
-} from "../../../../gateway-contract/src/request-signature.js";
+} from "../../gateway-contract/src/request-signature.js";
 import {
   validateGatewayValue,
   type GatewaySchemaName,
-} from "../../../../gateway-contract/src/schema-registry.js";
+} from "../../gateway-contract/src/schema-registry.js";
 import {
   maximumDeviceRequestQueueSeconds,
   nextAttachmentState,
@@ -35,7 +35,7 @@ import {
   type DeviceRequestEvent,
   type DeviceRequestState,
   type DeviceRequestRisk,
-} from "../../../../gateway-contract/src/state-machines.js";
+} from "../../gateway-contract/src/state-machines.js";
 
 /**
  * OpenClaw-side consumer of the shared Gateway Protocol v2 vectors.

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { gatewaySubschemaSha256 } from "../../../gateway-contract/src/dispatched-schema-validator.js";
+import { gatewaySubschemaSha256 } from "../gateway-contract/src/dispatched-schema-validator.js";
 import { createGatewayCore, type VerifiedRequestContext } from "../src/core/gateway-core.js";
 
 it("rejects an invalid publication and its replay without changing grants, bindings, audit or pending requests", async () => {

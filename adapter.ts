@@ -1,11 +1,4 @@
-import {
-  createFakeAdapter,
-  FROZEN_PROVIDER_TOOLS,
-  type AdapterOptions,
-  type AdapterProfile,
-  type FakeAdapter,
-} from "../shared/adapter.js";
-import { coreSchemaHash } from "../../gateway-contract/src/core-schema-hash.js";
+import { coreSchemaHash } from "./gateway-contract/src/core-schema-hash.js";
 import {
   registerOpenAndroidIntelligenceGateway,
   composeGatewayServices,
@@ -41,6 +34,15 @@ export {
   runAdminCommand,
 };
 export type { AdminPanel, AdminResult, AdminService, OpenClawPluginApi };
+
+export const OPENCLAW_TOOL_NAMES = Object.freeze([
+  "mobile.notifications.query",
+  "mobile.notifications.subscribe",
+  "mobile.notifications.unsubscribe",
+  "mobile.sms.query",
+  "mobile.sms.subscribe",
+  "mobile.sms.unsubscribe",
+] as const);
 
 export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
   id: "open-android-intelligence-gateway",
@@ -100,7 +102,7 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     attachmentEncryptionAtRest: true,
     encryptionAtRest: true,
   }),
-  tools: FROZEN_PROVIDER_TOOLS,
+  tools: OPENCLAW_TOOL_NAMES,
   exposureModes: Object.freeze(["host-route", "loopback-reverse-proxy", "direct-tls"] as const),
   management: Object.freeze({ surface: "host-ui-and-local-cli", localOnly: true, remotePort: null, sensitiveOperations: "local-confirmation" }),
   securityBoundary: Object.freeze({
@@ -111,17 +113,6 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
     zeroRetention: "not-implemented",
   }),
 });
-
-export type OpenClawAdapterOptions = Omit<AdapterOptions, "profiles"> & Readonly<{ profiles?: readonly AdapterProfile[] }>;
-
-export const createOpenClawAdapter = (options: OpenClawAdapterOptions): FakeAdapter =>
-  // No zero-retention profile is bound here: this backend does not implement
-  // one, and the manifest says so instead of naming a profile that would have to
-  // be trusted rather than checked.
-  createFakeAdapter({
-    ...options,
-    profiles: options.profiles === undefined ? OPENCLAW_PLUGIN_MANIFEST.profiles : options.profiles,
-  });
 
 export const OPENCLAW_PLUGIN = Object.freeze({
   id: "open-android-intelligence-gateway",

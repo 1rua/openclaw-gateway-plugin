@@ -1,0 +1,192 @@
+{
+  "formatVersion": "1.0.0",
+  "protocolVersion": "2.1",
+  "vectorSet": "auth-sessions",
+  "cases": [
+    {
+      "id": "auth-session-logout-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.logout",
+        "value": { "sessionId": "session_1", "refreshRevoked": true }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "auth-session-logout-unknown-field",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.logout",
+        "value": { "sessionId": "session_1", "refreshRevoked": true, "unexpected": true }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "auth-session-unpair-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.unpair",
+        "value": {
+          "deviceId": "device_1",
+          "deviceKeysRevoked": true,
+          "refreshRevoked": true,
+          "grantsRevoked": true,
+          "deviceRequestsRevoked": true,
+          "unconfirmedAttachmentsRevoked": true,
+          "sessionsRevoked": true
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "auth-session-unpair-missing-field",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.unpair",
+        "value": {
+          "deviceId": "device_1",
+          "deviceKeysRevoked": true,
+          "refreshRevoked": true,
+          "grantsRevoked": true,
+          "deviceRequestsRevoked": true,
+          "unconfirmedAttachmentsRevoked": true
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "auth-session-pairing-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.pairing",
+        "value": {
+          "pairingId": "pairing_1",
+          "pairingGeneration": 1,
+          "grantRevision": 0
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "auth-session-pairing-summary-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.pairingSummary",
+        "value": {
+          "deviceId": "device_1",
+          "pairingGeneration": 1,
+          "pairedAt": "2026-09-22T00:00:00.000Z"
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "auth-session-pairing-summary-unknown-field",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.pairingSummary",
+        "value": {
+          "deviceId": "device_1",
+          "pairingGeneration": 1,
+          "pairedAt": "2026-09-22T00:00:00.000Z",
+          "unexpected": true
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "auth-session-revoked-payload-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "event.sessionRevokedPayload",
+        "value": { "sessionId": "session_1" }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "auth-session-revoked-payload-unknown-field",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "event.sessionRevokedPayload",
+        "value": { "sessionId": "session_1", "unexpected": true }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "auth-session-grant-changed-payload-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "event.pairingGrantChangedPayload",
+        "value": { "grantRevision": 8 }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "auth-session-grant-changed-payload-missing-revision",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "event.pairingGrantChangedPayload",
+        "value": { "pluginId": "org.openandroidintelligence.sms" }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "auth-session-password-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.password",
+        "value": {
+          "negotiationId": "neg_1",
+          "username": "alice",
+          "password": "user-entered-secret",
+          "installation": {
+            "installationId": "install_1",
+            "displayName": "Alice's phone",
+            "devicePublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "auth-session-device-invalid-signature",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.device",
+        "value": {
+          "negotiationId": "neg_1",
+          "accountId": "account_1",
+          "installationId": "install_1",
+          "deviceId": "device_1",
+          "challenge": "challenge_1",
+          "signature": "A"
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "auth-session-refresh-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "session.refresh",
+        "value": {
+          "negotiationId": "neg_1",
+          "accountId": "account_1",
+          "installationId": "install_1",
+          "deviceId": "device_1",
+          "refreshCredential": "refresh-secret"
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    }
+  ]
+}

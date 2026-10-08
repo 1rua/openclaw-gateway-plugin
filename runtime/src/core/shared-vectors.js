@@ -1,0 +1,349 @@
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import addFormatsImport from "ajv-formats";
+import canonicalize from "canonicalize";
+import { createGatewayDispatchedValidator, gatewaySubschemaSha256, } from "../../gateway-contract/src/dispatched-schema-validator.js";
+import { canonicalRequestSignatureInput, canonicalRequestTarget, } from "../../gateway-contract/src/request-signature.js";
+import { validateGatewayValue, } from "../../gateway-contract/src/schema-registry.js";
+import { maximumDeviceRequestQueueSeconds, nextAttachmentState, nextDeviceRequestState, } from "../../gateway-contract/src/state-machines.js";
+/**
+ * OpenClaw-side consumer of the shared Gateway Protocol v2 vectors.
+ *
+ * This module is the TypeScript counterpart of the Hermes Python
+ * `GatewayCore.run_shared_vectors()` seam. Both implementations read the same
+ * `gateway-contract/vectors/*.json` documents and the same single dispatched
+ * fixture registry, and both project each case into the same normalized result
+ * so the cross-host conformance gate can compare result hashes.
+ */
+export const OPENCLAW_IMPLEMENTATION_ID = "openclaw-typescript";
+/**
+ * The exact six shared vector documents of contract section 16.
+ *
+ * The enumeration is closed: its `schemaName` set does not include the
+ * conversation-UI schemas, so `conversation-ui.json` is a local suite
+ * (`gateway-contract/test/conversation-ui.test.ts`) rather than a shared
+ * conformance input. Running it here made the runners emit case ids the
+ * cross-host gate does not expect.
+ */
+export const CONFORMANCE_VECTOR_FILE_NAMES = [
+    "request-signatures.json",
+    "protocol-negotiation.json",
+    "auth-sessions.json",
+    "attachments.json",
+    "sse-events.json",
+    "device-requests.json",
+];
+const FIXTURE_REGISTRY_FILE_NAME = "dispatched-schema-fixtures.json";
+const FIXTURE_META_SCHEMA_FILE_NAME = "dispatched-schema-fixtures-1.0.0.schema.json";
+const SHARED_BINDING_SET_ID = "gateway-core-fixtures-v1";
+const EXPECTED_CATALOG_ENTRY_COUNT = 16;
+const EXPECTED_CATALOG_FIXTURE_IDS = Object.freeze([
+    "event.gateway-notice.v1",
+    "device.sms-query.v1",
+    "response.conversation-create.v1",
+    "error.cursor-expired.v1",
+    "event.conversation-command-result.v1",
+    "event.conversation-approval-requested.v1",
+    "event.conversation-approval-resolved.v1",
+    "event.message-delta.v1",
+    "event.message-completed.v1",
+    "event.title-updated.v1",
+    "event.device-requested.v1",
+    "event.device-request-cancel-requested.v1",
+    "event.pairing-grant-changed.v1",
+    "event.session-revoked.v1",
+    "event.attachment-acknowledged.v1",
+    "event.message-status.v1",
+]);
+const MESSAGE_STATUS_SCHEMA_SHA256 = "sha256:abc4431159960c4887471250ecff3580f2f7df32fe8a29b407af55bc3a35d12d";
+const addFormats = addFormatsImport;
+const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
+const isFile = (path) => {
+    try {
+        return statSync(path).isFile();
+    }
+    catch {
+        return false;
+    }
+};
+const canonicalJson = (value) => {
+    const result = canonicalize(value);
+    if (result === undefined)
+        throw new Error("JCS_CANONICALIZATION_FAILED");
+    return result;
+};
+const schemaInvalid = () => {
+    throw new Error("SCHEMA_INVALID");
+};
+const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+const asRecord = (value, label) => {
+    if (!isRecord(value))
+        throw new Error(`INVALID_VECTOR_RECORD:${label}`);
+    return value;
+};
+const requireString = (record, field) => {
+    const value = record[field];
+    return typeof value === "string" ? value : schemaInvalid();
+};
+const decodeBodyHex = (value) => {
+    const hex = typeof value === "string" && /^(?:[0-9a-f]{2})*$/.test(value) ? value : schemaInvalid();
+    return Uint8Array.from(Buffer.from(hex, "hex"));
+};
+/**
+ * Locates the shared contract package without hard-coding an absolute path.
+ * The same discovery rule is used by the Hermes Python implementation so both
+ * hosts resolve one and the same contract directory.
+ */
+export const resolveContractRoot = (explicit) => {
+    const candidates = [];
+    if (explicit !== undefined) {
+        const given = resolve(explicit);
+        candidates.push(given, join(given, "gateway-contract"));
+    }
+    for (let current = moduleDirectory;; current = dirname(current)) {
+        candidates.push(join(current, "gateway-contract"));
+        if (dirname(current) === current)
+            break;
+    }
+    for (let current = resolve(process.cwd());; current = dirname(current)) {
+        candidates.push(join(current, "gateway-contract"));
+        if (dirname(current) === current)
+            break;
+    }
+    for (const candidate of candidates) {
+        if (isFile(join(candidate, "schemas", "envelope.schema.json")) &&
+            isFile(join(candidate, "vectors", "vector-set-1.0.0.schema.json"))) {
+            return candidate;
+        }
+    }
+    throw new Error("INTERNAL_ERROR:gateway-contract assets unavailable");
+};
+const logicalKeyOf = (key) => {
+    const { schemaSha256: _schemaSha256, ...logical } = key;
+    return logical;
+};
+/**
+ * Verifies and reads the one shared dispatched fixture registry. The four
+ * canonical Schema digests are recomputed here; no Schema, digest or binding
+ * may be inlined or substituted by this host.
+ */
+const loadSharedSchemaRegistry = (contractRoot) => {
+    const vectorsDirectory = join(contractRoot, "vectors");
+    const metaSchema = readJson(join(vectorsDirectory, FIXTURE_META_SCHEMA_FILE_NAME));
+    const document = readJson(join(vectorsDirectory, FIXTURE_REGISTRY_FILE_NAME));
+    const metaValidator = addFormats(new Ajv2020({ strict: true })).compile(asRecord(metaSchema, FIXTURE_META_SCHEMA_FILE_NAME));
+    if (!metaValidator(document))
+        throw new Error("INVALID_FIXTURE_REGISTRY");
+    if (document.formatVersion !== "1.0.0" ||
+        document.catalogEntries.length !== EXPECTED_CATALOG_ENTRY_COUNT ||
+        JSON.stringify(document.catalogEntries.map((entry) => entry.fixtureId)) !== JSON.stringify(EXPECTED_CATALOG_FIXTURE_IDS) ||
+        document.catalogEntries.at(-1)?.key["schemaSha256"] !== MESSAGE_STATUS_SCHEMA_SHA256 ||
+        document.bindingSets.length !== 1 ||
+        document.bindingSets[0]?.id !== SHARED_BINDING_SET_ID) {
+        throw new Error("INVALID_FIXTURE_REGISTRY");
+    }
+    const bindings = document.bindingSets[0].bindings;
+    if (bindings.length !== EXPECTED_CATALOG_ENTRY_COUNT) {
+        throw new Error("INVALID_FIXTURE_REGISTRY");
+    }
+    const entries = [];
+    for (const entry of document.catalogEntries) {
+        const canonical = canonicalJson(entry.schema);
+        const digest = `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
+        const recorded = entry.key["schemaSha256"];
+        if (digest !== recorded || gatewaySubschemaSha256(entry.schema) !== digest) {
+            throw new Error("INVALID_FIXTURE_REGISTRY");
+        }
+        const logical = canonicalJson(logicalKeyOf(entry.key));
+        const binding = bindings.find((candidate) => canonicalJson(logicalKeyOf(candidate.key)) === logical);
+        if (binding === undefined || binding.schemaSha256 !== digest) {
+            throw new Error("INVALID_FIXTURE_REGISTRY");
+        }
+        entries.push({ key: entry.key, schema: entry.schema });
+    }
+    const core = [];
+    const device = [];
+    for (const binding of bindings) {
+        const logical = logicalKeyOf(binding.key);
+        const digest = binding.schemaSha256;
+        if (logical.kind === "device.request") {
+            device.push({
+                kind: "device.request",
+                pluginId: logical.pluginId,
+                authorKeyId: logical.authorKeyId,
+                capabilityId: logical.capabilityId,
+                capabilityVersion: logical.capabilityVersion,
+                schemaSha256: digest,
+            });
+        }
+        else if (logical.kind === "event") {
+            core.push({ kind: "event", eventType: logical.eventType, schemaSha256: digest });
+        }
+        else if (logical.kind === "response.success") {
+            core.push({
+                kind: "response.success",
+                operation: logical.operation,
+                status: logical.status,
+                schemaSha256: digest,
+            });
+        }
+        else {
+            core.push({ kind: "response.failure", errorCode: logical.errorCode, schemaSha256: digest });
+        }
+    }
+    const bindingSet = { core, device };
+    return {
+        entries,
+        bindings,
+        validator: createGatewayDispatchedValidator(entries, bindingSet),
+    };
+};
+const forbiddenDispatchKeys = ["schemaSha256", "schema", "binding", "resolver", "validator"];
+const trustedDispatchOf = (value) => {
+    const dispatch = asRecord(value, "dispatch");
+    for (const key of forbiddenDispatchKeys) {
+        if (Object.hasOwn(dispatch, key))
+            throw new Error("INVALID_FIXTURE_BINDING_SET");
+    }
+    return dispatch;
+};
+const withVectorError = (operation) => {
+    try {
+        return { outcome: "value", value: operation() };
+    }
+    catch (cause) {
+        const code = cause instanceof Error ? cause.message : "";
+        if (code !== "SCHEMA_INVALID" &&
+            code !== "NON_CANONICAL_TARGET" &&
+            code !== "INVALID_STATE_TRANSITION") {
+            throw cause;
+        }
+        return { outcome: "error", code };
+    }
+};
+const runCase = (vectorCase, sharedRegistry) => {
+    const input = vectorCase.input;
+    const projected = (() => {
+        switch (vectorCase.operation) {
+            case "request.target":
+                return withVectorError(() => ({
+                    canonicalTarget: canonicalRequestTarget(requireString(input, "target")),
+                }));
+            case "request.signature": {
+                const signedInput = {
+                    method: requireString(input, "method"),
+                    target: requireString(input, "target"),
+                    accountId: requireString(input, "accountId"),
+                    deviceId: requireString(input, "deviceId"),
+                    sessionId: requireString(input, "sessionId"),
+                    requestId: requireString(input, "requestId"),
+                    timestamp: requireString(input, "timestamp"),
+                    nonce: requireString(input, "nonce"),
+                    body: decodeBodyHex(input["bodyHex"]),
+                };
+                return withVectorError(() => ({
+                    preimageHex: Buffer.from(canonicalRequestSignatureInput(signedInput)).toString("hex"),
+                }));
+            }
+            case "schema.validate": {
+                const schemaName = requireString(input, "schemaName");
+                const result = validateGatewayValue(schemaName, input["value"]);
+                return result.ok
+                    ? { outcome: "value", value: { valid: true } }
+                    : { outcome: "error", code: "SCHEMA_INVALID" };
+            }
+            case "schema.validate_dispatched": {
+                if (input["fixtureBindingSetId"] !== SHARED_BINDING_SET_ID) {
+                    throw new Error("INVALID_FIXTURE_BINDING_SET");
+                }
+                const result = sharedRegistry.validator.validate(trustedDispatchOf(input["dispatch"]), input["value"]);
+                return result.ok
+                    ? { outcome: "value", value: { valid: true } }
+                    : { outcome: "error", code: "SCHEMA_INVALID" };
+            }
+            case "attachment.transition":
+                return withVectorError(() => ({
+                    nextState: nextAttachmentState(requireString(input, "current"), requireString(input, "event")),
+                }));
+            case "device.transition":
+                return withVectorError(() => ({
+                    nextState: nextDeviceRequestState(requireString(input, "current"), requireString(input, "event")),
+                }));
+            case "device.maximum_queue_seconds":
+                return withVectorError(() => ({
+                    seconds: maximumDeviceRequestQueueSeconds(requireString(input, "risk")),
+                }));
+        }
+    })();
+    return projected.outcome === "value"
+        ? {
+            vectorId: vectorCase.id,
+            operation: vectorCase.operation,
+            outcome: "value",
+            value: projected.value,
+        }
+        : {
+            vectorId: vectorCase.id,
+            operation: vectorCase.operation,
+            outcome: "error",
+            code: projected.code,
+        };
+};
+const expectedProjection = (expected) => expected.outcome === "value"
+    ? { outcome: "value", value: expected.value }
+    : { outcome: "error", code: expected.code };
+const actualProjection = (actual) => actual.outcome === "value"
+    ? { outcome: "value", value: actual.value }
+    : { outcome: "error", code: actual.code };
+const resultHashOf = (actual) => `sha256:${createHash("sha256")
+    .update(Buffer.from(canonicalJson(actual.outcome === "value"
+    ? {
+        vectorId: actual.vectorId,
+        operation: actual.operation,
+        outcome: actual.outcome,
+        value: actual.value,
+    }
+    : {
+        vectorId: actual.vectorId,
+        operation: actual.operation,
+        outcome: actual.outcome,
+        code: actual.code,
+    }), "utf8"))
+    .digest("hex")}`;
+const readVectorCases = (contractRoot) => {
+    const vectorsDirectory = join(contractRoot, "vectors");
+    const cases = [];
+    for (const fileName of CONFORMANCE_VECTOR_FILE_NAMES) {
+        const document = asRecord(readJson(join(vectorsDirectory, fileName)), fileName);
+        for (const vectorCase of document.cases)
+            cases.push(vectorCase);
+    }
+    return cases;
+};
+/**
+ * Evaluates every shared vector case with the OpenClaw TypeScript contract
+ * stack and projects each one into the cross-host conformance record.
+ */
+export const runSharedVectors = (contractRoot) => {
+    const root = resolveContractRoot(contractRoot);
+    const sharedRegistry = loadSharedSchemaRegistry(root);
+    return readVectorCases(root).map((vectorCase) => {
+        const actual = runCase(vectorCase, sharedRegistry);
+        const expected = vectorCase.expected;
+        const status = canonicalJson(actualProjection(actual)) ===
+            canonicalJson(expectedProjection(expected))
+            ? "pass"
+            : "fail";
+        return {
+            vectorId: actual.vectorId,
+            operation: actual.operation,
+            implementation: OPENCLAW_IMPLEMENTATION_ID,
+            status,
+            resultHash: resultHashOf(actual),
+        };
+    });
+};

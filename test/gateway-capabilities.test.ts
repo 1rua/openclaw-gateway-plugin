@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { coreSchemaHash } from "../../../gateway-contract/src/core-schema-hash.js";
+import { coreSchemaHash } from "../gateway-contract/src/core-schema-hash.js";
 import staticPluginManifest from "../plugin-manifest.json" with { type: "json" };
 import { createAdminService } from "../src/admin/service.js";
 import { createGatewayCore } from "../src/core/gateway-core.js";

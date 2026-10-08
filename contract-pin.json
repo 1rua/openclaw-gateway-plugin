@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/1rua/open-android-intelligence.git",
+  "revision": "14f8751a646b6f26c0164f39206b88eaa5d49d74",
+  "paths": [
+    "gateway-contract/core-dispatched-schemas.json",
+    "gateway-contract/schemas",
+    "gateway-contract/src",
+    "gateway-contract/vectors"
+  ]
+}

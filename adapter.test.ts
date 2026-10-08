@@ -1,47 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { createOpenClawAdapter, OPENCLAW_PLUGIN_MANIFEST } from "./adapter.js";
-import { fixtureBinding, fixtureContext, fixtureZeroRetentionEvidence } from "../shared/adapter.js";
+import { OPENCLAW_PLUGIN, OPENCLAW_PLUGIN_MANIFEST, OPENCLAW_TOOL_NAMES } from "./adapter.js";
+import hostManifest from "./openclaw.plugin.json" with { type: "json" };
+import packageMetadata from "./package.json" with { type: "json" };
 
-describe("OpenClaw adapter", () => {
-  it("uses one authoritative Gateway/plugin mapping and preserves binding", async () => {
-    const adapter = createOpenClawAdapter({ context: fixtureContext(), zeroRetention: fixtureZeroRetentionEvidence() });
-    await adapter.pair(fixtureBinding());
-    expect(OPENCLAW_PLUGIN_MANIFEST.authoritativeProfiles).toEqual({ chat: "gateway", tool: "plugin", event: "plugin-hook" });
-    await expect(adapter.sendAssistantMessage({ messageId: "m-1", text: "hello" }))
-      .resolves.toMatchObject({ status: "accepted" });
-    // Workspace/session are carried by the authenticated runtime context, not
-    // by the device pairing record returned here.
-    expect(adapter.binding()).toMatchObject({ tenantId: "tenant-a", deviceId: "device-a" });
+describe("OpenClaw native package entry", () => {
+  it("exports the stable plugin identity and registration entry", () => {
+    expect(OPENCLAW_PLUGIN.id).toBe("open-android-intelligence-gateway");
+    expect(OPENCLAW_PLUGIN.name).toBe("Open Android Intelligence Gateway");
+    expect(typeof OPENCLAW_PLUGIN.register).toBe("function");
   });
 
-  it("accepts the shared bounded audio attachment contract", async () => {
-    const adapter = createOpenClawAdapter({ context: fixtureContext(), zeroRetention: fixtureZeroRetentionEvidence() });
-    await adapter.pair(fixtureBinding());
-    await expect(adapter.sendAssistantMessage({
-      messageId: "voice-1", text: "analyze this",
-      attachments: [{ kind: "audio", artifactId: "artifact-audio", filename: "voice.m4a", mimeType: "audio/mp4", sizeBytes: 512, sha256: "c".repeat(64), durationMs: 5000 }],
-    })).resolves.toMatchObject({ status: "accepted" });
-  });
-
-  it("normalizes its result without backend-specific identity fields", async () => {
-    const adapter = createOpenClawAdapter({ context: fixtureContext(), zeroRetention: fixtureZeroRetentionEvidence() });
-    await adapter.pair(fixtureBinding());
-    const response = await adapter.sendAssistantMessage({ messageId: "m-1", text: "hello" });
-    expect(Object.keys(response).sort()).toEqual(["messageId", "reply", "status"]);
-  });
-
-  it("routes the closed SMS operations through the shared adapter", async () => {
-    const adapter = createOpenClawAdapter({
-      context: fixtureContext(),
-      zeroRetention: fixtureZeroRetentionEvidence(),
-      onDemandSms: async () => [],
+  it("keeps protocol, host compatibility, and implemented tools explicit", () => {
+    expect(OPENCLAW_PLUGIN_MANIFEST.protocolVersion).toBe("2.1.0");
+    expect(OPENCLAW_PLUGIN_MANIFEST.hostApi).toEqual({
+      min: "2026.7.1",
+      max: "2026.7.1",
+      commit: "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c",
     });
-    await adapter.pair(fixtureBinding());
-    await expect(adapter.invokeTool("mobile.sms.query", { toolCallId: "openclaw-sms", deviceId: "device-a", limit: 1 }))
-      .resolves.toEqual([]);
+    expect(Object.isFrozen(OPENCLAW_TOOL_NAMES)).toBe(true);
     expect(OPENCLAW_PLUGIN_MANIFEST.tools).toEqual([
       "mobile.notifications.query", "mobile.notifications.subscribe", "mobile.notifications.unsubscribe",
       "mobile.sms.query", "mobile.sms.subscribe", "mobile.sms.unsubscribe",
     ]);
+    expect(hostManifest.id).toBe(OPENCLAW_PLUGIN.id);
+    expect(hostManifest.contracts.tools).toEqual(["open_android_device"]);
+    expect(packageMetadata.openclaw.extensions).toEqual(["./adapter.ts"]);
+    expect(packageMetadata.openclaw.runtimeExtensions).toEqual(["./runtime/adapter.js"]);
   });
 });

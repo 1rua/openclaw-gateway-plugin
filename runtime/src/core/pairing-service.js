@@ -1,0 +1,158 @@
+/**
+ * 解除配对 for one device of one account.
+ *
+ * Contract §13 names the five resource classes 解除配对 revokes — device keys,
+ * refresh credential, grants, queue and unconfirmed attachments — and the Wave 0
+ * ruling D1 adds every access session of the device plus a `pairingGeneration`
+ * bump. This is a resource-level transaction: it is never expressed as
+ * per-attachment or per-request state jumps, because neither state machine has a
+ * "revoked" state to jump to.
+ */
+export class PairingService {
+    accountId;
+    store;
+    audit;
+    events;
+    sessions;
+    deviceRequests;
+    attachments;
+    constructor(accountId, store, audit, events, sessions, deviceRequests, attachments) {
+        this.accountId = accountId;
+        this.store = store;
+        this.audit = audit;
+        this.events = events;
+        this.sessions = sessions;
+        this.deviceRequests = deviceRequests;
+        this.attachments = attachments;
+    }
+    hasActivePairing(deviceId) {
+        const row = this.store.database
+            .prepare("SELECT 1 AS present FROM device_keys WHERE device_id = ?")
+            .get(deviceId);
+        return row !== undefined;
+    }
+    /**
+     * Raises one pairing's `grantRevision` by one (contract §11).
+     *
+     * The revision is the monotone counter a device presents with every device
+     * request, so after the Android-local grant has changed the Gateway must move
+     * the device's revision before any request bound to the old one can still be
+     * claimed or answered (`GRANT_STALE`).
+     *
+     * One commit carries all three facts: the new revision on the device key
+     * row, the audit entry, and the `pairing.grant.changed` event on the stream.
+     * The event is a notification only — its payload is exactly
+     * `$defs/pairingGrantChangedPayload`, and this host has no signed-grant
+     * mechanism, so the optional `grantDigest` and the plugin-identity fields are
+     * omitted rather than invented.
+     */
+    bumpGrantRevision(input) {
+        const now = input.now ?? new Date();
+        return this.store.transaction(() => {
+            const key = this.store.database
+                .prepare("SELECT grant_revision AS grant_revision FROM device_keys WHERE device_id = ?")
+                .get(input.deviceId);
+            // No key means there is no pairing whose grant could change: the request
+            // is refused rather than silently "succeeding" against nothing.
+            if (key === undefined)
+                throw new Error("PAIRING_REQUIRED");
+            const nextRevision = Number(key.grant_revision ?? 1) + 1;
+            this.store.database
+                .prepare("UPDATE device_keys SET grant_revision = ? WHERE device_id = ?")
+                .run(nextRevision, input.deviceId);
+            this.events.append({
+                eventType: "pairing.grant.changed",
+                correlationId: input.correlationId,
+                payload: { deviceId: input.deviceId, grantRevision: nextRevision, ...(input.grantDigest ? { grantDigest: input.grantDigest } : {}) },
+                now,
+            });
+            this.audit.append({
+                eventType: "pairing.grant.changed",
+                actor: { accountId: this.accountId, deviceId: input.deviceId },
+                subject: { deviceId: input.deviceId, grantRevision: nextRevision },
+                correlationId: input.correlationId,
+                occurredAt: now.toISOString(),
+            });
+            return Object.freeze({ deviceId: input.deviceId, grantRevision: nextRevision });
+        });
+    }
+    revoke(input) {
+        const now = input.now ?? new Date();
+        return this.store.transaction(() => {
+            const deviceId = input.deviceId;
+            const key = this.store.database
+                .prepare("SELECT pairing_generation AS pairing_generation, grant_revision AS grant_revision FROM device_keys WHERE device_id = ?")
+                .get(deviceId);
+            // No key means there is no pairing to unpaired: the request is refused
+            // rather than silently "succeeding" against nothing, so a caller cannot
+            // mistake an already-unpaired device for a freshly revoked one.
+            if (key === undefined)
+                throw new Error("PAIRING_REQUIRED");
+            const pairingGeneration = Number(key.pairing_generation ?? 1);
+            const previousGrantRevision = Number(key.grant_revision ?? 1);
+            // 1. Device key: the Ed25519 public key the device signs with. Without it
+            // no later request of this pairing can be verified.
+            this.store.database.prepare("DELETE FROM device_keys WHERE device_id = ?").run(deviceId);
+            // 2. Refresh credential: the device can no longer mint an access token.
+            this.sessions.revokeRefreshCredentials(deviceId, input.correlationId, now);
+            // 3. Grants. This host stores no grant table: the per-device grant state
+            // is the `grant_revision` carried by the device key, so no key row
+            // surviving is also no grant surviving (see 3-6 for the store that gives
+            // grants a table of their own — it must be swept here too).
+            const deviceRequests = this.deviceRequests.revokeForDevice({
+                deviceId,
+                correlationId: input.correlationId,
+                now,
+            });
+            // 4. Unconfirmed attachments and their staged bytes.
+            const attachments = this.attachments.revokeUnconfirmed({
+                deviceId,
+                pairingGeneration,
+                correlationId: input.correlationId,
+                now,
+            });
+            // 5. Every access session of the device, not only the caller's.
+            const sessions = this.sessions.revokeDeviceSessions(deviceId, input.correlationId, now);
+            const nextPairingGeneration = this.bumpPairingGeneration();
+            const receipt = Object.freeze({
+                deviceId,
+                deviceKeysRevoked: !this.hasActivePairing(deviceId),
+                refreshRevoked: this.sessions.activeRefreshCredentialCount(deviceId) === 0,
+                grantsRevoked: !this.hasActivePairing(deviceId),
+                deviceRequestsRevoked: this.deviceRequests.countLiveForDevice(deviceId) === 0,
+                unconfirmedAttachmentsRevoked: this.attachments.countUnconfirmed(deviceId, pairingGeneration) === 0,
+                sessionsRevoked: this.sessions.activeSessionCount(deviceId) === 0,
+            });
+            this.audit.append({
+                eventType: "pairing.revoked",
+                actor: { accountId: this.accountId, deviceId },
+                subject: {
+                    previousGrantRevision,
+                    pairingGeneration: nextPairingGeneration,
+                    sessions,
+                    deviceRequests,
+                    attachments,
+                    ...receipt,
+                },
+                correlationId: input.correlationId,
+                occurredAt: now.toISOString(),
+            });
+            return Object.freeze({
+                receipt,
+                pairingGeneration: nextPairingGeneration,
+                revoked: Object.freeze({ sessions, deviceRequests, attachments }),
+            });
+        });
+    }
+    /**
+     * Contract §12: the generation only ever moves up, and it survives the device
+     * key it seeds so the next re-pair starts above the revoked generation.
+     */
+    bumpPairingGeneration() {
+        const next = this.sessions.currentPairingGeneration() + 1;
+        this.store.database
+            .prepare("UPDATE account_metadata SET value = ? WHERE key = 'pairing_generation'")
+            .run(String(next));
+        return next;
+    }
+}

@@ -6,9 +6,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { coreSchemaHash } from "../../../gateway-contract/src/core-schema-hash.js";
-import { canonicalRequestSignatureInput } from "../../../gateway-contract/src/request-signature.js";
-import vectors from "../../../gateway-contract/vectors/protocol-negotiation.json" with { type: "json" };
+import { coreSchemaHash } from "../gateway-contract/src/core-schema-hash.js";
+import { canonicalRequestSignatureInput } from "../gateway-contract/src/request-signature.js";
+import vectors from "../gateway-contract/vectors/protocol-negotiation.json" with { type: "json" };
 import { createGatewayCore } from "../src/core/gateway-core.js";
 import { AccountPayloadCipher } from "../src/core/payload-cipher.js";
 import { registerOpenAndroidIntelligenceGateway } from "../src/host/channel-adapter.js";

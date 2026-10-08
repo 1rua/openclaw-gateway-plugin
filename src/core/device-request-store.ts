@@ -5,7 +5,7 @@ import {
   nextDeviceRequestState,
   type DeviceRequestRisk,
   type DeviceRequestState,
-} from "../../../../gateway-contract/src/state-machines.js";
+} from "../../gateway-contract/src/state-machines.js";
 import type { GatewayAccountStore } from "./account-store.js";
 import { AuditStore } from "./audit-store.js";
 import { EventStore } from "./event-store.js";

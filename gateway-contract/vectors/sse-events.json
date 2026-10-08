@@ -1,0 +1,477 @@
+{
+  "formatVersion": "1.0.0",
+  "protocolVersion": "2.1",
+  "vectorSet": "sse-events",
+  "cases": [
+    {
+      "id": "sse-event-gateway-notice-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "gateway.notice"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-08-27T00:00:00.000Z",
+          "payload": { "noticeCode": "maintenance" }
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "sse-event-payload-unknown-field",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "gateway.notice"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-08-27T00:00:00.000Z",
+          "payload": { "noticeCode": "maintenance", "unexpected": true }
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "sse-event-conversation-command-result-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "conversation.command.result"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-08-27T00:00:00.000Z",
+          "payload": {
+            "command": "new",
+            "commandId": "new",
+            "outcome": "created-conversation",
+            "sourceConversationId": "conv_source",
+            "sourceMessageId": "msg_command",
+            "conversationId": "conv_created"
+          }
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "sse-event-conversation-command-result-without-new-conversation-is-rejected",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "conversation.command.result"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-08-27T00:00:00.000Z",
+          "payload": {
+            "command": "new",
+            "commandId": "new",
+            "outcome": "created-conversation",
+            "sourceConversationId": "conv_source",
+            "sourceMessageId": "msg_command"
+          }
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "sse-event-conversation-approval-requested-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "conversation.approval.requested"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:00:00.000Z",
+          "payload": {
+            "approvalId": "apr_approval_1",
+            "conversationId": "conv_source",
+            "command": "python3 -c \"print(1)\"",
+            "reason": "内联解释器执行",
+            "severity": "elevated",
+            "options": [
+              { "choice": "once", "label": "允许一次", "style": "primary" },
+              { "choice": "always", "label": "始终允许", "style": "secondary" },
+              { "choice": "deny", "label": "拒绝", "style": "danger" }
+            ],
+            "timeoutSeconds": 300,
+            "requestedAt": 1780000000000,
+            "expiresAt": 1780000300000
+          }
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "sse-event-conversation-approval-requested-unknown-choice-is-rejected",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "conversation.approval.requested"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:00:00.000Z",
+          "payload": {
+            "approvalId": "apr_approval_1",
+            "conversationId": "conv_source",
+            "command": "rm -rf /tmp/example",
+            "reason": "递归删除",
+            "options": [
+              { "choice": "allow-once", "style": "primary" }
+            ],
+            "timeoutSeconds": 300,
+            "requestedAt": 1780000000000
+          }
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "sse-event-conversation-approval-resolved-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "conversation.approval.resolved"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:00:05.000Z",
+          "payload": {
+            "approvalId": "apr_approval_1",
+            "conversationId": "conv_source",
+            "decision": "once",
+            "decidedAt": 1780000005000
+          }
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "sse-event-conversation-approval-resolved-unknown-decision-is-rejected",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": {
+          "kind": "event",
+          "eventType": "conversation.approval.resolved"
+        },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:05:00.000Z",
+          "payload": {
+            "approvalId": "apr_approval_1",
+            "conversationId": "conv_source",
+            "decision": "approved",
+            "decidedAt": 1780000300000
+          }
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "sse-event-message-delta-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.message.delta" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:06:00.000Z",
+          "payload": {
+            "conversationId": "conv_1",
+            "messageId": "msg_1",
+            "sender": "assistant",
+            "parts": [{ "type": "text", "text": "你好" }],
+            "text": "你好",
+            "timestamp": 1780000000000,
+            "revision": 0
+          }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-message-delta-unknown-field",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.message.delta" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:06:00.000Z",
+          "payload": {
+            "conversationId": "conv_1",
+            "messageId": "msg_1",
+            "sender": "assistant",
+            "parts": [],
+            "text": "",
+            "timestamp": 1780000000000,
+            "revision": 0,
+            "unexpected": true
+          }
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "sse-event-message-completed-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.message.completed" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:06:05.000Z",
+          "payload": {
+            "conversationId": "conv_1",
+            "messageId": "msg_1",
+            "sender": "assistant",
+            "parts": [{ "type": "text", "text": "" }],
+            "text": "",
+            "timestamp": 1780000005000,
+            "revision": 0
+          }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-title-updated-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.title.updated" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:07:00.000Z",
+          "payload": { "conversationId": "conv_1", "title": "新标题", "newTitle": "新标题" }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-title-updated-missing-new-title",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.title.updated" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:07:00.000Z",
+          "payload": { "conversationId": "conv_1", "title": "新标题" }
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "sse-event-device-requested-openclaw-minimum-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "device.requested" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:08:00.000Z",
+          "payload": { "requestId": "device_request_1", "risk": "read", "grantRevision": 7 }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-device-requested-hermes-full-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "device.requested" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:08:00.000Z",
+          "payload": {
+            "requestId": "device_request_1",
+            "capability": { "id": "org.openandroidintelligence.sms.query", "version": "1.0.0" },
+            "provider": {
+              "pluginId": "org.openandroidintelligence.sms",
+              "authorKeyId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "parameters": { "query": "from:alice" },
+            "risk": "read",
+            "grantRevision": 7,
+            "createdAt": "2026-08-27T00:00:00.000Z",
+            "expiresAt": "2026-08-28T00:00:00.000Z",
+            "requiresForegroundConfirmation": false
+          }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-device-requested-unknown-risk",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "device.requested" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:08:00.000Z",
+          "payload": { "requestId": "device_request_1", "risk": "urgent", "grantRevision": 7 }
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "sse-event-device-request-cancel-requested-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "device.request.cancel.requested" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:09:00.000Z",
+          "payload": { "requestId": "device_request_1" }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-pairing-grant-changed-dispatched-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "pairing.grant.changed" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:10:00.000Z",
+          "payload": { "deviceId": "device_1", "grantRevision": 8 }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-session-revoked-dispatched-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "session.revoked" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:11:00.000Z",
+          "payload": { "sessionId": "session_1", "deviceId": "device_1" }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-attachment-acknowledged-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "attachment.acknowledged" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:12:00.000Z",
+          "payload": { "attachmentId": "att_1" }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-attachment-acknowledged-unknown-field",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "attachment.acknowledged" },
+        "value": {
+          "correlationId": "correlation_1",
+          "occurredAt": "2026-09-22T00:12:00.000Z",
+          "payload": { "attachmentId": "att_1", "unexpected": true }
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    }
+    ,{
+      "id": "sse-event-message-status-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.message.status" },
+        "value": {
+          "correlationId": "correlation_status",
+          "occurredAt": "2026-09-23T00:00:00.000Z",
+          "payload": {
+            "conversationId": "conv_1",
+            "messageId": "msg_1",
+            "clientMessageId": "client_msg_1",
+            "status": "delivered",
+            "revision": 1,
+            "errorCode": null
+          }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "sse-event-message-status-unknown-field",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "event", "eventType": "conversation.message.status" },
+        "value": {
+          "correlationId": "correlation_status",
+          "occurredAt": "2026-09-23T00:00:00.000Z",
+          "payload": {
+            "conversationId": "conv_1",
+            "messageId": "msg_1",
+            "clientMessageId": "client_msg_1",
+            "status": "failed",
+            "revision": 2,
+            "errorCode": "AGENT_MEDIA_REJECTED",
+            "unexpected": true
+          }
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    }
+  ]
+}

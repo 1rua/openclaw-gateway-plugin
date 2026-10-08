@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/device-request.schema.json",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "capability",
+        "provider",
+        "parameters",
+        "risk",
+        "grantRevision",
+        "createdAt",
+        "expiresAt",
+        "requiresForegroundConfirmation"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "capability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 }
+          }
+        },
+        "provider": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pluginId", "authorKeyId"],
+          "properties": {
+            "pluginId": { "type": "string", "minLength": 1 },
+            "authorKeyId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/prefixedSha256"
+            }
+          }
+        },
+        "parameters": {
+          "$comment": "Dispatch by the negotiated capability id and version and validate again with its capability sub-Schema; missing sub-Schema must fail closed.",
+          "type": "object"
+        },
+        "risk": {
+          "enum": ["read", "sync", "write", "high-privilege-ephemeral"]
+        },
+        "grantRevision": { "type": "integer", "minimum": 0 },
+        "createdAt": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/utcMillis"
+        },
+        "expiresAt": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/utcMillis"
+        },
+        "requiresForegroundConfirmation": { "type": "boolean" }
+      }
+    },
+    "result": {
+      "$comment": "Contract §10: POST /device-requests/{requestId}/result carries result as { outcome, data? }. outcome_unknown must not carry data.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome"],
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": {
+            "outcome": { "const": "outcome_unknown" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": {
+            "outcome": {
+              "enum": ["succeeded", "failed", "denied", "cancelled"]
+            },
+            "data": { "type": "object" }
+          }
+        }
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "denied",
+            "cancelled",
+            "outcome_unknown"
+          ]
+        },
+        "data": { "type": "object" }
+      }
+    },
+    "resultRequest": {
+      "$comment": "Contract §10: the result submission body is claimId + grantRevision + result, nothing else.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimId", "grantRevision", "result"],
+      "properties": {
+        "claimId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "grantRevision": { "type": "integer", "minimum": 0 },
+        "result": { "$ref": "#/$defs/result" }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/command-catalog.schema.json",
+  "$defs": {
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "commands"],
+      "properties": {
+        "version": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command", "description"],
+            "properties": {
+              "command": {
+                "type": "string",
+                "pattern": "^/[a-z0-9_-]+$"
+              },
+              "description": { "type": "string", "minLength": 1 },
+              "argumentHint": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

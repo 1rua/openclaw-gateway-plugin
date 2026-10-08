@@ -1,0 +1,14 @@
+{
+  "id": "open-android-intelligence-gateway",
+  "name": "Open Android Intelligence Gateway",
+  "description": "Open Android Intelligence Gateway Protocol v2 channel and management adapter",
+  "version": "1.0.0",
+  "contracts": {
+    "tools": ["open_android_device"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

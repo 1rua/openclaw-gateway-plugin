@@ -1,0 +1,55 @@
+name: plugin-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned Gateway Protocol revision
+        id: contract-pin
+        run: |
+          revision=$(python -c "import json;print(json.load(open('contract-pin.json'))['revision'])")
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the pinned Gateway Protocol contract
+        uses: actions/checkout@v4
+        with:
+          repository: 1rua/open-android-intelligence
+          ref: ${{ steps.contract-pin.outputs.revision }}
+          path: .contract-source
+          sparse-checkout: gateway-contract
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify the generated contract snapshot
+        run: npm run contract:check
+        env:
+          OPEN_ANDROID_GATEWAY_CONTRACT_ROOT: ${{ github.workspace }}/.contract-source/gateway-contract
+
+      - name: Typecheck and test
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+          git diff --exit-code -- runtime
+
+      - name: Validate the native OpenClaw plugin package
+        run: |
+          OPENCLAW_HOME="$RUNNER_TEMP/openclaw-home" OPENCLAW_STATE_DIR="$RUNNER_TEMP/openclaw-state" npm run plugin:install-smoke
+          OPENCLAW_HOME="$RUNNER_TEMP/openclaw-home" OPENCLAW_STATE_DIR="$RUNNER_TEMP/openclaw-state" npm run plugin:inspect-smoke

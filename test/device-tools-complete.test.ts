@@ -3,7 +3,7 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {generateKeyPairSync} from "node:crypto";
 import {expect,it} from "vitest";
-import {gatewaySubschemaSha256} from "../../../gateway-contract/src/dispatched-schema-validator.js";
+import {gatewaySubschemaSha256} from "../gateway-contract/src/dispatched-schema-validator.js";
 import {createGatewayCore,type VerifiedRequestContext} from "../src/core/gateway-core.js";
 import {registerDeviceTools,trustedDeviceTurn,type DeviceToolApi,DEVICE_TOOL_NAME} from "../src/host/device-tools.js";
 

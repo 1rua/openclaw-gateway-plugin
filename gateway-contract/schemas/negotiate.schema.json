@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/negotiate.schema.json",
+  "$defs": {
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "const": 2 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["negotiationId", "protocol", "client", "features", "schemaHashes"],
+      "properties": {
+        "negotiationId": {
+          "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+        },
+        "protocol": { "$ref": "#/$defs/protocol" },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["installationId", "appVersion", "platform", "platformApi"],
+          "properties": {
+            "installationId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "appVersion": { "type": "string", "minLength": 1 },
+            "platform": { "const": "android" },
+            "platformApi": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["auth", "messages", "attachments", "events", "deviceRequests"],
+          "properties": {
+            "auth": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": ["password", "account-invitation", "refresh", "device-key"]
+              }
+            },
+            "messages": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["chat-v1"] }
+            },
+            "attachments": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["staged-sha256-v1"] }
+            },
+            "events": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["sse-cursor-v1"] }
+            },
+            "deviceRequests": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["risk-queue-v1"] }
+            },
+            "conversationUi": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "agent-command-catalog-v1",
+                  "agent-command-new-v1",
+                  "agent-approval-cards-v1",
+                  "message-batches-v1",
+                  "newline-v1",
+                  "generation-cancel-v1",
+                  "conversation-mirror-v1",
+                  "attachment-status-v1"
+                ]
+              }
+            }
+          }
+        },
+        "schemaHashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["core"],
+          "properties": {
+            "core": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/prefixedSha256"
+            }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "features", "limits", "gatewayIdentity"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/protocol" },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["auth", "messages", "attachments", "events", "deviceRequests"],
+          "properties": {
+            "auth": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": ["password", "account-invitation", "refresh", "device-key"]
+              }
+            },
+            "messages": { "const": "chat-v1" },
+            "attachments": { "const": "staged-sha256-v1" },
+            "events": { "const": "sse-cursor-v1" },
+            "deviceRequests": { "const": "risk-queue-v1" },
+            "conversationUi": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "agent-command-catalog-v1",
+                  "agent-command-new-v1",
+                  "agent-approval-cards-v1",
+                  "message-batches-v1",
+                  "newline-v1",
+                  "generation-cancel-v1",
+                  "conversation-mirror-v1",
+                  "attachment-status-v1"
+                ]
+              }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attachmentTtlSeconds",
+            "eventRetentionSeconds",
+            "maxClockSkewSeconds"
+          ],
+          "properties": {
+            "attachmentTtlSeconds": { "type": "integer", "minimum": 1 },
+            "eventRetentionSeconds": { "type": "integer", "minimum": 1 },
+            "maxClockSkewSeconds": { "type": "integer", "minimum": 0 },
+            "maxBatchMembers": { "type": "integer", "minimum": 1 },
+            "maxBatchBytes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "gatewayIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["deploymentId", "tlsSpkiSha256"],
+          "properties": {
+            "deploymentId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "tlsSpkiSha256": {
+              "$comment": "No configured TLS identity is null for explicit plaintext deployments; HTTPS clients must refuse null before sending credentials. Zero is never an identity.",
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "allOf": [
+                    { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/prefixedSha256" },
+                    { "not": { "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

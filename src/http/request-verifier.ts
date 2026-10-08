@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { canonicalRequestSignatureInput } from "../../../../gateway-contract/src/request-signature.js";
+import { canonicalRequestSignatureInput } from "../../gateway-contract/src/request-signature.js";
 import type { GatewayCore } from "../core/gateway-core.js";
 import type { GatewayRequestVerifier } from "./routes.js";
 

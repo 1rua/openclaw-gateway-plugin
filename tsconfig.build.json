@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "runtime",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "adapter.ts",
+    "openclaw-plugin-sdk.d.ts",
+    "src/**/*.ts",
+    "gateway-contract/src/**/*.ts"
+  ]
+}

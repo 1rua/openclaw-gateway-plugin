@@ -1,0 +1,230 @@
+import { HistoryMedia } from "../core/history-media.js";
+import { createHash } from "node:crypto";
+import { trustedDeviceTurn } from "./device-tools.js";
+export const OPENCLAW_CHANNEL_ID = "open-android-intelligence-gateway";
+const recordOf = (value) => typeof value === "object" && value !== null ? value : {};
+const mediaKind = (contentType) => {
+    const classifier = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    if (classifier.startsWith("image/"))
+        return "image";
+    if (classifier.startsWith("video/"))
+        return "video";
+    if (classifier.startsWith("audio/"))
+        return "audio";
+    return "document";
+};
+/**
+ * OpenClaw's official channel turn runner owns normalization and Agent
+ * dispatch. This adapter contributes only the Gateway message facts and the
+ * channel context; media stays as ordered local path/MIME facts.
+ */
+export const dispatchGatewayMessageToOpenClaw = async (input) => {
+    const { account, message, channelRuntime, cfg, gatewayAccountId, channelAccountId, log } = input;
+    const materialized = [];
+    let adopted = false;
+    let delivered = false;
+    let replyDeliveryFailed = false;
+    const markAgentDelivered = () => {
+        if (delivered)
+            return;
+        adopted = true;
+        account.conversations.markDelivered(message.messageId, `openclaw.adopted.${message.messageId}`);
+        delivered = true;
+        const ackFailures = account.conversations.acknowledgeDeliveredAttachments(message.messageId, `openclaw.attachment-ack.${message.messageId}`);
+        if (ackFailures.length > 0) {
+            log?.warn?.(`Open Android delivered message retained ${ackFailures.length} encrypted attachment(s) for TTL cleanup: messageId=${message.messageId}`);
+        }
+    };
+    try {
+        const attachments = message.attachmentIds.map((attachmentId) => account.attachments.get(attachmentId));
+        for (const attachmentId of message.attachmentIds) {
+            materialized.push(await account.attachments.materializeVerified(attachmentId));
+        }
+        const mediaInputs = attachments.map((attachment, index) => Object.freeze({
+            path: materialized[index].path,
+            contentType: attachment.mediaType,
+            kind: mediaKind(attachment.mediaType),
+            messageId: message.messageId,
+        }));
+        const normalizeMedia = channelRuntime.inbound.toInboundMediaFacts
+            ?? (await import("openclaw/plugin-sdk/channel-inbound")).toInboundMediaFacts;
+        const media = normalizeMedia(mediaInputs, { messageId: message.messageId });
+        const routePeer = Object.freeze({ kind: "direct", id: `${gatewayAccountId}:${message.conversationId}` });
+        const raw = Object.freeze({ message, media: Object.freeze(media) });
+        const run = channelRuntime.inbound.run;
+        const buildContext = channelRuntime.inbound.buildContext;
+        const resolveAgentRoute = channelRuntime.routing.resolveAgentRoute;
+        const resolveStorePath = channelRuntime.session.resolveStorePath;
+        const recordInboundSession = channelRuntime.session.recordInboundSession;
+        const runResult = recordOf(await trustedDeviceTurn.run({ accountId: gatewayAccountId, messageId: message.messageId }, () => run({
+            channel: OPENCLAW_CHANNEL_ID,
+            accountId: channelAccountId,
+            raw,
+            onTurnAdopted: async () => {
+                markAgentDelivered();
+            },
+            adapter: {
+                ingest: (event) => {
+                    const value = recordOf(event);
+                    const incoming = recordOf(value["message"]);
+                    return Object.freeze({
+                        id: String(incoming["messageId"]),
+                        timestamp: Date.parse(String(incoming["createdAt"])),
+                        rawText: String(incoming["text"] ?? ""),
+                        textForAgent: String(incoming["text"] ?? ""),
+                        raw: event,
+                    });
+                },
+                preflight: (normalized) => {
+                    const value = recordOf(normalized);
+                    const event = recordOf(value["raw"]);
+                    return Object.freeze({
+                        message: Object.freeze({
+                            body: String(value["rawText"] ?? ""),
+                            rawBody: String(value["rawText"] ?? ""),
+                            bodyForAgent: String(value["textForAgent"] ?? value["rawText"] ?? ""),
+                            commandBody: String(value["rawText"] ?? ""),
+                        }),
+                        media: event["media"],
+                    });
+                },
+                resolveTurn: async (normalized, _eventClass, preflight) => {
+                    const value = recordOf(normalized);
+                    const event = recordOf(value["raw"]);
+                    const gatewayMessage = recordOf(event["message"]);
+                    const facts = recordOf(preflight);
+                    const route = resolveAgentRoute({
+                        cfg,
+                        channel: OPENCLAW_CHANNEL_ID,
+                        accountId: channelAccountId,
+                        peer: routePeer,
+                    });
+                    const session = recordOf(recordOf(cfg)["session"]);
+                    const storePath = resolveStorePath(typeof session["store"] === "string" ? session["store"] : undefined, { agentId: route.agentId });
+                    const timestamp = Number(value["timestamp"]);
+                    account.conversations.bindHostSession(message.conversationId, { storePath, sessionKey: route.sessionKey });
+                    const messageText = String(value["rawText"] ?? "");
+                    const context = buildContext({
+                        channel: OPENCLAW_CHANNEL_ID,
+                        accountId: channelAccountId,
+                        messageId: String(gatewayMessage["messageId"]),
+                        messageIdFull: String(gatewayMessage["clientMessageId"]),
+                        timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+                        from: `android:${gatewayAccountId}`,
+                        sender: { id: gatewayAccountId, displayLabel: "Android" },
+                        conversation: {
+                            kind: "direct",
+                            id: String(gatewayMessage["conversationId"]),
+                            routePeer,
+                        },
+                        route: {
+                            agentId: route.agentId,
+                            accountId: route.accountId,
+                            routeSessionKey: route.sessionKey,
+                        },
+                        reply: { to: `${OPENCLAW_CHANNEL_ID}:${gatewayAccountId}:${String(gatewayMessage["conversationId"])}` },
+                        message: {
+                            body: messageText,
+                            rawBody: messageText,
+                            bodyForAgent: messageText,
+                            commandBody: messageText,
+                        },
+                        media: facts["media"],
+                    });
+                    return Object.freeze({
+                        cfg,
+                        channel: OPENCLAW_CHANNEL_ID,
+                        accountId: channelAccountId,
+                        agentId: route.agentId,
+                        routeSessionKey: route.sessionKey,
+                        storePath,
+                        ctxPayload: context,
+                        recordInboundSession: async () => {
+                            await recordInboundSession({
+                                storePath,
+                                sessionKey: route.sessionKey,
+                                ctx: context,
+                                createIfMissing: true,
+                                onRecordError: (error) => {
+                                    log?.warn?.(`Open Android inbound session record failed: ${error instanceof Error ? error.name : "unknown"}`);
+                                },
+                            });
+                        },
+                        dispatchReplyWithBufferedBlockDispatcher: channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher,
+                        delivery: {
+                            deliver: async (payload) => {
+                                try {
+                                    const text = payload?.["text"];
+                                    const mediaUrls = Array.isArray(payload?.["mediaUrls"]) ? payload["mediaUrls"] : typeof payload?.["mediaUrl"] === "string" ? [payload["mediaUrl"]] : [];
+                                    if (mediaUrls.some(url => typeof url !== "string" || /^https?:/iu.test(url)))
+                                        throw new Error("AGENT_REPLY_UNSUPPORTED");
+                                    if (typeof text === "string" || mediaUrls.length > 0) {
+                                        const messageId = `msg_${createHash("sha256").update(JSON.stringify([message.messageId, text ?? "", mediaUrls])).digest("hex").slice(0, 40)}`;
+                                        account.conversations.recordHistoryBinding(message.conversationId, messageId, "assistant", typeof text === "string" ? text : "");
+                                        const workspace = recordOf(recordOf(recordOf(cfg)["agents"])["defaults"])["workspace"];
+                                        const parts = [...(typeof text === "string" ? [{ type: "text", text }] : []), ...mediaUrls.map(url => new HistoryMedia(account.store, account.accountId).register(message.conversationId, messageId, String(url), String(payload?.["mediaType"] ?? "application/octet-stream"), typeof workspace === "string" ? [workspace] : []))];
+                                        parts.filter(p => p.type === "attachment").forEach((part, i) => { const key = `history-media-reply:${messageId}:${i}`; account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)").run(key, account.store.sealJson(part, key)); });
+                                        account.events.append({
+                                            eventType: "conversation.message.completed",
+                                            correlationId: message.messageId,
+                                            payload: { conversationId: message.conversationId, messageId, sender: "assistant", parts, text: typeof text === "string" ? text : "", timestamp: Date.now(), revision: 1 },
+                                        });
+                                    }
+                                    else if (payload !== undefined && Object.keys(payload).length > 0) {
+                                        // Media-only replies need the host attachment port. A reply
+                                        // we cannot deliver must never be reported as completed.
+                                        throw new Error("AGENT_REPLY_UNSUPPORTED");
+                                    }
+                                    log?.info?.(`Open Android inbound Agent turn completed: messageId=${String(gatewayMessage["messageId"])}`);
+                                }
+                                catch (error) {
+                                    replyDeliveryFailed = true;
+                                    throw error;
+                                }
+                            },
+                        },
+                    });
+                },
+            },
+        })));
+        if (runResult["dispatched"] !== true) {
+            const admission = recordOf(runResult["admission"]);
+            const reason = String(admission["reason"] ?? "");
+            if (/media|attachment/iu.test(reason))
+                throw new Error("AGENT_MEDIA_REJECTED");
+            throw new Error("AGENT_UNAVAILABLE");
+        }
+        if (replyDeliveryFailed)
+            throw new Error("AGENT_UNAVAILABLE");
+        if (!delivered) {
+            markAgentDelivered();
+        }
+        account.conversations.markCompleted(message.messageId, `openclaw.completed.${message.messageId}`);
+    }
+    catch (error) {
+        const observedCode = error instanceof Error && error.message === "ATTACHMENT_STORAGE_UNAVAILABLE"
+            ? "ATTACHMENT_READ_FAILED"
+            : error instanceof Error ? error.message : "";
+        const code = adopted && !delivered
+            ? "ATTACHMENT_READ_FAILED"
+            : [
+                "AGENT_UNAVAILABLE",
+                "ATTACHMENT_READ_FAILED",
+                "AGENT_MEDIA_REJECTED",
+                "MODEL_REQUEST_REJECTED",
+            ].includes(observedCode)
+                ? observedCode
+                : adopted ? "MODEL_REQUEST_REJECTED" : "AGENT_UNAVAILABLE";
+        try {
+            account.conversations.markFailed(message.messageId, code, `openclaw.failed.${message.messageId}`);
+        }
+        catch (statusError) {
+            log?.error?.(`Open Android inbound status update failed: messageId=${message.messageId} code=${statusError instanceof Error ? statusError.name : "unknown"}`);
+        }
+        log?.warn?.(`Open Android inbound dispatch failed: messageId=${message.messageId} code=${code}`);
+    }
+    finally {
+        for (const item of materialized)
+            item.cleanup();
+    }
+};

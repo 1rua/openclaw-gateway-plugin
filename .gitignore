@@ -1,0 +1,8 @@
+node_modules/
+build/
+coverage/
+test-results/
+.contract-source/
+.contract-staging/
+*.log
+*.tmp

@@ -1,7 +1,7 @@
-import { createGatewayDispatchedValidator, gatewaySubschemaSha256 } from "../../../../gateway-contract/src/dispatched-schema-validator.js";
+import { createGatewayDispatchedValidator, gatewaySubschemaSha256 } from "../../gateway-contract/src/dispatched-schema-validator.js";
 import { coreCatalog, coreBindings } from "./event-store.js";
 import type { GatewayAccountStore } from "./account-store.js";
-import type { DeviceRequestRisk } from "../../../../gateway-contract/src/state-machines.js";
+import type { DeviceRequestRisk } from "../../gateway-contract/src/state-machines.js";
 
 export type DeviceCapabilityBinding = Readonly<{
   pluginId: string; authorKeyId: string; capabilityId: string; capabilityVersion: string;

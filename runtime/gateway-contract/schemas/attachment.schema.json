@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/attachment.schema.json",
+    "$defs": {
+        "create": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clientAttachmentId", "filename", "mediaType", "sizeBytes", "sha256"],
+            "properties": {
+                "clientAttachmentId": {
+                    "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+                },
+                "filename": { "type": "string", "minLength": 1 },
+                "mediaType": { "type": "string", "minLength": 1 },
+                "sizeBytes": { "type": "integer", "minimum": 0 },
+                "sha256": {
+                    "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/bareSha256"
+                }
+            }
+        },
+        "status": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["attachmentId", "status", "sizeBytes", "sha256"],
+            "properties": {
+                "attachmentId": {
+                    "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+                },
+                "status": {
+                    "enum": ["staged", "uploaded", "failed", "expired"]
+                },
+                "sizeBytes": { "type": "integer", "minimum": 0 },
+                "sha256": {
+                    "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/bareSha256"
+                }
+            }
+        }
+    }
+}

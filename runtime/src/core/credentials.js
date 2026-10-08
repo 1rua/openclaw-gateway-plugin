@@ -1,0 +1,108 @@
+import { randomBytes, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
+/**
+ * Account password digests for the OpenClaw Gateway.
+ *
+ * Contract §5.2 keeps the password out of Android entirely: it is presented once
+ * over verified TLS and verified here. Only a digest is stored, so the Gateway
+ * can never read a password back, and an account that was never given one cannot
+ * be logged into at all.
+ */
+export const ALGORITHM = "scrypt";
+// Interactive-login cost: ~16 MiB of memory, one pass, well under a second.
+export const COST_N = 2 ** 14;
+export const BLOCK_R = 8;
+export const PARALLEL_P = 1;
+const SALT_BYTES = 16;
+const KEY_BYTES = 32;
+// scrypt hashes at most 1024 bytes of input (RFC 7914).
+const MAX_PASSWORD_BYTES = 1024;
+const encode = (value) => Buffer.from(value).toString("base64url");
+const decode = (value) => Buffer.from(value, "base64url");
+const passwordBytes = (password) => {
+    if (typeof password !== "string" || password.length === 0) {
+        throw new Error("PASSWORD_REQUIRED");
+    }
+    const encoded = Buffer.from(password, "utf8");
+    if (encoded.byteLength > MAX_PASSWORD_BYTES)
+        throw new Error("SCHEMA_INVALID");
+    return encoded;
+};
+export const hashPassword = (password, cost = COST_N, block = BLOCK_R, parallel = PARALLEL_P) => {
+    const salt = randomBytes(SALT_BYTES);
+    const key = scryptSync(passwordBytes(password), salt, KEY_BYTES, {
+        N: cost,
+        r: block,
+        p: parallel,
+        maxmem: 132 * cost * block,
+    });
+    return [ALGORITHM, String(cost), String(block), String(parallel), encode(salt), encode(key)].join("$");
+};
+/**
+ * Constant-time verification of a stored digest.
+ *
+ * A malformed stored value, an unknown algorithm or a non-string input is a
+ * failed verification rather than an exception: the caller is an authentication
+ * seam that must fail closed.
+ */
+export const verifyPassword = (password, encoded) => {
+    if (typeof encoded !== "string" || encoded.length === 0)
+        return false;
+    const parts = encoded.split("$");
+    if (parts.length !== 6 || parts[0] !== ALGORITHM)
+        return false;
+    const cost = Number(parts[1]);
+    const block = Number(parts[2]);
+    const parallel = Number(parts[3]);
+    if (!Number.isSafeInteger(cost) || !Number.isSafeInteger(block) || !Number.isSafeInteger(parallel))
+        return false;
+    if (cost < 2 || block < 1 || parallel < 1)
+        return false;
+    let salt;
+    let expected;
+    try {
+        salt = decode(parts[4]);
+        expected = decode(parts[5]);
+    }
+    catch {
+        return false;
+    }
+    if (salt.byteLength === 0 || expected.byteLength !== KEY_BYTES)
+        return false;
+    let candidate;
+    try {
+        candidate = scryptSync(passwordBytes(password), salt, KEY_BYTES, {
+            N: cost,
+            r: block,
+            p: parallel,
+            maxmem: 132 * cost * block,
+        });
+    }
+    catch {
+        return false;
+    }
+    return candidate.byteLength === expected.byteLength && timingSafeEqual(candidate, expected);
+};
+/** Network logins use libuv's bounded worker pool, never synchronous scrypt. */
+export const verifyPasswordAsync = async (password, encoded) => {
+    const parts = encoded.split("$");
+    if (parts.length !== 6 || parts[0] !== ALGORITHM)
+        return false;
+    const cost = Number(parts[1]), block = Number(parts[2]), parallel = Number(parts[3]);
+    // Accept only the interactive costs this deployment writes. A corrupted
+    // digest must not turn one admitted login into an unbounded allocation.
+    if (cost !== COST_N || block !== BLOCK_R || parallel !== PARALLEL_P)
+        return false;
+    try {
+        const salt = decode(parts[4]), expected = decode(parts[5]);
+        if (salt.byteLength !== SALT_BYTES || expected.byteLength !== KEY_BYTES)
+            return false;
+        const bytes = passwordBytes(password);
+        const candidate = await new Promise((resolve, reject) => {
+            scrypt(bytes, salt, KEY_BYTES, { N: cost, r: block, p: parallel, maxmem: 132 * cost * block }, (error, key) => error ? reject(error) : resolve(key));
+        });
+        return timingSafeEqual(candidate, expected);
+    }
+    catch {
+        return false;
+    }
+};

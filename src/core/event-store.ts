@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { createGatewayDispatchedValidator } from "../../../../gateway-contract/src/dispatched-schema-validator.js";
-import coreRegistryJson from "../../../../gateway-contract/core-dispatched-schemas.json" with { type: "json" };
+import { createGatewayDispatchedValidator } from "../../gateway-contract/src/dispatched-schema-validator.js";
+import coreRegistryJson from "../../gateway-contract/core-dispatched-schemas.json" with { type: "json" };
 
 import type { GatewayAccountStore } from "./account-store.js";
 

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "adapter.ts",
+    "adapter.test.ts",
+    "openclaw-plugin-sdk.d.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "gateway-contract/src/**/*.ts"
+  ]
+}

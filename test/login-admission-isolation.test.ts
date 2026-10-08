@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { coreSchemaHash } from "../../../gateway-contract/src/core-schema-hash.js";
-import vectors from "../../../gateway-contract/vectors/protocol-negotiation.json" with { type: "json" };
+import { coreSchemaHash } from "../gateway-contract/src/core-schema-hash.js";
+import vectors from "../gateway-contract/vectors/protocol-negotiation.json" with { type: "json" };
 import { createGatewayCore } from "../src/core/gateway-core.js";
 import { composeGatewayServices } from "../src/host/channel-adapter.js";
 
