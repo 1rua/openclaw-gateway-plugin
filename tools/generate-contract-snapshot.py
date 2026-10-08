@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,25 @@ def main() -> int:
         )
         if present.returncode != 0:
             return fail(f"契约 pin 提交 {revision} 不在当前检出历史中")
+        untracked = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(source_repo),
+                "ls-files",
+                "--others",
+                "--",
+                *(f"gateway-contract/{path}" for path in CONTRACT_PATHS),
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        if untracked.returncode != 0:
+            return fail("无法检查 pin 路径下的未跟踪契约文件")
+        untracked_paths = [path for path in untracked.stdout.splitlines() if path]
+        if untracked_paths:
+            return fail(f"pin 路径含有不属于固定提交的未跟踪文件：{', '.join(untracked_paths)}")
         unchanged = subprocess.run(
             [
                 "git",
@@ -107,31 +127,38 @@ def main() -> int:
     if missing:
         return fail(f"pin 对应提交缺少必需 Schema：{', '.join(missing)}")
 
+    sources = [source_root / relative for relative in CONTRACT_PATHS]
+    missing_paths = [relative for relative, source in zip(CONTRACT_PATHS, sources, strict=True) if not source.exists()]
+    if missing_paths:
+        return fail(f"pin 对应提交缺少契约路径：{', '.join(missing_paths)}")
+    for relative, source in zip(CONTRACT_PATHS, sources, strict=True):
+        if source.is_symlink():
+            return fail(f"契约源不允许符号链接：{relative}")
+        if source.is_dir() and any(path.is_symlink() for path in source.rglob("*")):
+            return fail(f"契约源目录不允许符号链接：{relative}")
+
     output_root = args.output.expanduser().resolve()
     if output_root.exists():
         return fail(f"输出目录已存在，为避免混入旧文件拒绝覆盖：{output_root}")
-    destination = output_root / "gateway-contract"
     try:
-        output_root.mkdir(parents=True)
+        output_root.parent.mkdir(parents=True, exist_ok=True)
+        staging_root = Path(tempfile.mkdtemp(prefix=f".{output_root.name}.staging-", dir=output_root.parent))
+        destination = staging_root / "gateway-contract"
         destination.mkdir()
-        for relative in CONTRACT_PATHS:
-            source = source_root / relative
-            if not source.exists():
-                return fail(f"pin 对应提交缺少契约路径：{relative}")
+        for relative, source in zip(CONTRACT_PATHS, sources, strict=True):
             target = destination / relative
-            if source.is_symlink():
-                return fail(f"契约源不允许符号链接：{source}")
             if source.is_dir():
-                if any(path.is_symlink() for path in source.rglob("*")):
-                    return fail(f"契约源目录不允许符号链接：{relative}")
                 shutil.copytree(source, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+        if output_root.exists():
+            return fail(f"生成期间输出目录已被创建，拒绝覆盖：{output_root}")
+        staging_root.rename(output_root)
     except (OSError, ValueError) as error:
         return fail(str(error))
 
-    print(f"已从契约 pin {revision} 生成快照：{destination}")
+    print(f"已从契约 pin {revision} 生成快照：{output_root / 'gateway-contract'}")
     return 0
 
 

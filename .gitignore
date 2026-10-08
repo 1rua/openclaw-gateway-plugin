@@ -12,6 +12,7 @@ test-results/
 *.swo
 *.apk
 *.aab
+*.tsnet-toolchain.env
 *.lcov
 *.log
 *.tmp
@@ -22,6 +23,7 @@ test-results/
 Thumbs.db
 /logs/
 /tmp/
+apps/android/local.properties
 /.toolchains/
 /third_party/tailscale
 /.superpowers/
