@@ -52,6 +52,7 @@ jobs:
           npm test
           npm run build
           git diff --exit-code -- runtime
+          test -z "$(git ls-files --others -- runtime)"
 
       - name: Validate the native OpenClaw plugin package
         run: |
