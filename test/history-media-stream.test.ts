@@ -190,11 +190,11 @@ it("真实 Ed25519 HTTP 返回原类型和摘要，JSON 原件与非法 MIME 均
 });
 
 const inboundRuntime = (root: string, deliver: (turn: any, params: any) => Promise<void>): OpenClawInboundRuntime => {
-  const store = join(root, "sessions.json"); writeFileSync(store, JSON.stringify({ "agent:main:history": { sessionId: "native", sessionFile: "native.jsonl" } })); writeFileSync(join(root, "native.jsonl"), "");
+  const store = join(root, "sessions.json"); writeFileSync(store, JSON.stringify({})); writeFileSync(join(root, "native.jsonl"), "");
   return {
-    inbound: { buildContext: facts => facts, toInboundMediaFacts: media => media, run: async params => { const input = params as any; const normalized = await input.adapter.ingest(input.raw); const preflight = await input.adapter.preflight(normalized); const turn = await input.adapter.resolveTurn(normalized, {}, preflight); await input.onTurnAdopted(); await deliver(turn, input); return { dispatched: true }; } },
+    inbound: { buildContext: facts => facts, toInboundMediaFacts: media => media, run: async params => { const input = params as any; const normalized = await input.adapter.ingest(input.raw); const preflight = await input.adapter.preflight(normalized); const turn = await input.adapter.resolveTurn(normalized, {}, preflight); await turn.recordInboundSession(); await input.onTurnAdopted(); await deliver(turn, input); return { dispatched: true }; } },
     routing: { resolveAgentRoute: () => ({ agentId: "main", accountId: "default", sessionKey: "agent:main:history" }) },
-    session: { resolveStorePath: () => store, recordInboundSession: async () => undefined },
+    session: { resolveStorePath: () => store, recordInboundSession: async input => { const session = input as {sessionKey:string}; writeFileSync(store,JSON.stringify({[session.sessionKey]:{sessionId:"native",sessionFile:"native.jsonl"}})); } },
     reply: { dispatchReplyWithBufferedBlockDispatcher: () => undefined },
   };
 };

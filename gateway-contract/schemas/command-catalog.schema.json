@@ -5,23 +5,29 @@
     "catalog": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "commands"],
+      "required": ["format", "catalogVersion", "languageCode", "commands"],
       "properties": {
-        "version": {
+        "format": { "const": "agent-command-catalog-1.0" },
+        "catalogVersion": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
+        "languageCode": { "type": "string", "minLength": 1 },
         "commands": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["command", "description"],
+            "required": ["id", "invocation", "title", "description", "acceptsArguments", "availability"],
             "properties": {
-              "command": {
+              "id": { "type": "string", "minLength": 1 },
+              "invocation": {
                 "type": "string",
                 "pattern": "^/[a-z0-9_-]+$"
               },
-              "description": { "type": "string", "minLength": 1 },
+              "title": { "type": "string", "minLength": 1 },
+              "description": { "type": "string" },
+              "acceptsArguments": { "type": "boolean" },
+              "availability": { "type": "string", "minLength": 1 },
               "argumentHint": { "type": "string" }
             }
           }

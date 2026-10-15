@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, unlinkSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 
 import { nextAttachmentState, type AttachmentState } from "../../gateway-contract/src/state-machines.js";
 import type { AccountPaths } from "./account-paths.js";
@@ -441,7 +441,10 @@ export class AttachmentStore {
   }
 
   async materializeVerified(attachmentId: string): Promise<Readonly<{ path: string; cleanup: () => void }>> {
-    const path = join(this.paths.attachments, `${attachmentId}.${randomUUID()}.inbound`);
+    const extension = extname(this.get(attachmentId).filename).toLowerCase();
+    // Providers may use the upload filename as well as the MIME fact (e.g. AAC in M4A).
+    const suffix = /^\.[a-z0-9]{1,12}$/u.test(extension) ? extension : "";
+    const path = join(this.paths.attachments, `${attachmentId}.${randomUUID()}.inbound${suffix}`);
     const fd = openSync(path, "wx", 0o600);
     try {
       for await (const chunk of this.openVerifiedStream(attachmentId)) {

@@ -1,3 +1,5 @@
+import { resolveGatewayHostSession } from "./host-session.js";
+import { abortTrackedTurn } from "./active-turns.js";
 import { registerDeviceTools, type DeviceToolApi } from "./device-tools.js";
 import {existsSync} from "node:fs";
 import { createGatewayCore, type GatewayCore } from "../core/gateway-core.js";
@@ -137,12 +139,9 @@ const startInboundWorker = (
 ): void => {
   let nextAccountIndex = 0;
   const nextAttachmentSweepAt = new Map<string, number>();
-  if(runtime) core.setHostSessionResolver?.((accountId,conversationId)=> {
-    const route=runtime.routing.resolveAgentRoute({cfg,channel:OPENCLAW_CHANNEL_ID,accountId:channelAccountId,peer:{kind:"direct",id:`${accountId}:${conversationId}`}}) as {agentId?:string;sessionKey?:string};
-    if(typeof route.agentId!=="string" || typeof route.sessionKey!=="string") return undefined;
-    const session=(cfg as {session?:{store?:string}}|undefined)?.session;
-    const storePath=runtime.session.resolveStorePath(session?.store,{agentId:route.agentId});
-    return existsSync(storePath) ? {storePath,sessionKey:route.sessionKey} : undefined;
+  if(runtime) core.setHostSessionResolver?.(async (accountId,conversationId)=> {
+    const binding=await resolveGatewayHostSession(runtime,cfg,channelAccountId,accountId,conversationId);
+    return existsSync(binding.storePath) ? {storePath:binding.storePath,sessionKey:binding.sessionKey} : undefined;
   });
   const run = async (): Promise<void> => {
     while (!abortSignal.aborted) {
@@ -215,7 +214,7 @@ const startInboundWorker = (
   });
 };
 
-export const createOpenAndroidIntelligenceChannel = (core: GatewayCore): OpenClawChannelPlugin => {
+export const createOpenAndroidIntelligenceChannel = (core: GatewayCore, onAccountStart?: (accountId:string,cfg:unknown)=>void): OpenClawChannelPlugin => {
   return Object.freeze({
     ...OPEN_ANDROID_INTELLIGENCE_CHANNEL,
     config: Object.freeze({
@@ -235,6 +234,7 @@ export const createOpenAndroidIntelligenceChannel = (core: GatewayCore): OpenCla
           asLog(context["log"])?.error?.("Open Android channel startAccount missing accountId or AbortSignal");
           return;
         }
+        onAccountStart?.(hostAccountId,context["cfg"]);
         startInboundWorker(
           core,
           hostAccountId,
@@ -284,11 +284,13 @@ export type OpenClawPluginApi = DeviceToolApi & Readonly<{
   dataDir?: string;
   resolvePath?: (input: string) => string;
   gatewayCore?: GatewayCore;
+  config?: unknown;
   runtime?: Readonly<{
     version?: string;
     dataDir?: string;
     gatewayCore?: GatewayCore;
     verifyRequest?: GatewayRequestVerifier;
+    channel?: OpenClawInboundRuntime;
     gateway?: Readonly<{ request: (method:string,params?:Record<string,unknown>,options?:unknown)=>Promise<unknown> }>;
   }>;
   pluginConfig?: Readonly<Record<string, unknown>>;
@@ -376,23 +378,48 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
     tlsSpkiSha256: typeof api.pluginConfig?.["tlsSpkiSha256"] === "string" ? api.pluginConfig["tlsSpkiSha256"] : undefined,
   });
   const nativeGateway=api.runtime?.gateway;
+  let activeChannelAccountId="default";
+  let activeConfig=api.config;
+  if (typeof nativeGateway?.request === "function") {
+    services.core.setCommandCatalogProvider?.(async () => {
+      const result = await nativeGateway.request("commands.list", {scope:"text",includeArgs:true}, {timeoutMs:8000}) as {commands?:Record<string,unknown>[]};
+      if (!Array.isArray(result.commands)) throw new Error("AGENT_UNAVAILABLE");
+      return result.commands.flatMap(entry => {
+        const name = typeof entry.name === "string" ? entry.name.replace(/^\//u, "") : "";
+        if (!/^[a-z0-9_-]+$/u.test(name) || typeof entry.description !== "string") return [];
+        const args = Array.isArray(entry.args) ? entry.args as Array<{name:string;required?:boolean}> : [];
+        return [{id:name,invocation:`/${name}`,title:name,description:entry.description || name,acceptsArguments:entry.acceptsArgs === true,availability:"available",
+          ...(args.length ? {argumentHint:args.map(arg=>arg.required ? `<${arg.name}>` : `[${arg.name}]`).join(" ")} : {})}];
+      });
+    });
+    const runtime=asInboundRuntime(api.runtime?.channel);
+    if (runtime) services.core.setHostConversationCreator?.(async (accountId,conversationId,title) => {
+      const binding=await resolveGatewayHostSession(runtime,activeConfig,activeChannelAccountId,accountId,conversationId);
+      const result=await nativeGateway.request("sessions.create", {key:binding.sessionKey,agentId:binding.agentId,
+        ...(title ? {label:title} : {})}, {timeoutMs:8000}) as {ok?:boolean;key?:string;runStarted?:boolean};
+      if (result.ok !== true || result.key !== binding.sessionKey || result.runStarted === true) throw new Error("AGENT_UNAVAILABLE");
+      return {storePath:binding.storePath,sessionKey:binding.sessionKey};
+    });
+  }
   if (typeof nativeGateway?.request === "function") services.core.setGenerationCanceller?.(async(accountId,conversationId,generationId)=> {
     const account=await services.core.openGatewayAccount(accountId);
     try {
       const generation=account.conversations.workflow.get<{state:string}>(`generation:${generationId}`);
       if (generation?.state === "completed" || generation?.state === "failed") return "ALREADY_COMPLETED";
+      const tracked=await abortTrackedTurn(accountId,generationId);
+      if (tracked) return tracked;
       const binding=account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`) as {value:string}|undefined;
       if (!binding) return "OUTCOME_UNKNOWN";
       const trusted=JSON.parse(binding.value) as {sessionKey:string};
       // Pinned OpenClaw Runtime.gateway.request dispatches the real native stop RPC.
-      const result=await nativeGateway.request("chat.abort",{sessionKey:trusted.sessionKey},{timeoutMs:8000}) as {ok?:boolean;aborted?:boolean};
+      const result=await nativeGateway.request("chat.abort",{sessionKey:trusted.sessionKey,runId:generationId},{timeoutMs:8000}) as {ok?:boolean;aborted?:boolean};
       if (result.ok === true && result.aborted === true) return "CANCELLED";
       const terminal=account.conversations.workflow.get<{state:string}>(`generation:${generationId}`);
       return terminal?.state === "completed" || terminal?.state === "failed" ? "ALREADY_COMPLETED" : "OUTCOME_UNKNOWN";
     } finally { account.close(); }
   });
   api.registerChannel(Object.freeze({
-    plugin: createOpenAndroidIntelligenceChannel(services.core),
+    plugin: createOpenAndroidIntelligenceChannel(services.core,(accountId,cfg)=> {activeChannelAccountId=accountId;activeConfig=cfg;}),
   }));
   for (const route of services.exposure.routes) {
     api.registerHttpRoute({

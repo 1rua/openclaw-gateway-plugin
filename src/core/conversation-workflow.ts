@@ -151,15 +151,26 @@ export class ConversationWorkflow {
     this.settle(generation.messageIds[0]!,"unknown");
     try { return await cancel(); } catch { return "OUTCOME_UNKNOWN"; }
   }
+  completeCancellation(messageId: string, correlationId: string, now = new Date()): void {
+    this.store.transaction(() => {
+      const generation = this.forMessage(messageId);
+      if (!generation || ["completed","failed"].includes(generation.state)) return;
+      generation.state = "cancelled";
+      this.put(`generation:${generation.generationId}`,generation);
+      for (const mid of generation.messageIds) this.store.database.prepare("UPDATE messages SET body='',dispatchable=0,next_attempt_at=NULL WHERE message_id=?").run(mid);
+      const eventKey = `generation-cancellation:${generation.generationId}`;
+      if (!this.get<boolean>(eventKey)) {
+        this.events.append({eventType:"conversation.generation.cancelled",correlationId,
+          payload:{conversationId:generation.conversationId,generationId:generation.generationId,outcome:"CANCELLED"},now});
+        this.put(eventKey,true);
+      }
+    });
+  }
   finishCancel(conversationId: string, generationId: string, outcome: string, context: VerifiedRequestContext, now = new Date()): Record<string, unknown> {
     if (!["CANCELLED", "ALREADY_COMPLETED", "UNSUPPORTED", "OUTCOME_UNKNOWN"].includes(outcome)) throw new Error("SCHEMA_INVALID");
     const generation = this.get<Generation>(`generation:${generationId}`)!;
     if (outcome === "CANCELLED") {
-      generation.state = "cancelled";
-      this.put(`generation:${generationId}`,generation);
-      for (const mid of generation.messageIds) this.store.database.prepare("UPDATE messages SET body='',dispatchable=0,next_attempt_at=NULL WHERE message_id=?").run(mid);
-      this.events.append({ eventType: "conversation.generation.cancelled", correlationId: context.correlationId,
-        payload: { conversationId, generationId, outcome }, now });
+      this.completeCancellation(generation.messageIds[0]!,context.correlationId,now);
     } else if (outcome === "ALREADY_COMPLETED") this.settle(generation.messageIds[0]!,"completed");
     return { outcome, generationId };
   }

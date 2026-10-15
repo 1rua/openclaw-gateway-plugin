@@ -1,3 +1,5 @@
+import { resolveGatewayHostSession } from "./host-session.js";
+import { trackTurn } from "./active-turns.js";
 import { HistoryMedia } from "../core/history-media.js";
 import { createHash } from "node:crypto";
 import { trustedDeviceTurn } from "./device-tools.js";
@@ -20,6 +22,8 @@ const mediaKind = (contentType) => {
  */
 export const dispatchGatewayMessageToOpenClaw = async (input) => {
     const { account, message, channelRuntime, cfg, gatewayAccountId, channelAccountId, log } = input;
+    const generationId = account.conversations.workflow.forMessage(message.messageId)?.generationId;
+    const turn = trackTurn(gatewayAccountId, generationId ?? message.messageId);
     const materialized = [];
     let adopted = false;
     let delivered = false;
@@ -54,8 +58,6 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
         const raw = Object.freeze({ message, media: Object.freeze(media) });
         const run = channelRuntime.inbound.run;
         const buildContext = channelRuntime.inbound.buildContext;
-        const resolveAgentRoute = channelRuntime.routing.resolveAgentRoute;
-        const resolveStorePath = channelRuntime.session.resolveStorePath;
         const recordInboundSession = channelRuntime.session.recordInboundSession;
         const runResult = recordOf(await trustedDeviceTurn.run({ accountId: gatewayAccountId, messageId: message.messageId }, () => run({
             channel: OPENCLAW_CHANNEL_ID,
@@ -94,14 +96,11 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                     const event = recordOf(value["raw"]);
                     const gatewayMessage = recordOf(event["message"]);
                     const facts = recordOf(preflight);
-                    const route = resolveAgentRoute({
-                        cfg,
-                        channel: OPENCLAW_CHANNEL_ID,
-                        accountId: channelAccountId,
-                        peer: routePeer,
-                    });
-                    const session = recordOf(recordOf(cfg)["session"]);
-                    const storePath = resolveStorePath(typeof session["store"] === "string" ? session["store"] : undefined, { agentId: route.agentId });
+                    const route = await resolveGatewayHostSession(channelRuntime, cfg, channelAccountId, gatewayAccountId, message.conversationId);
+                    const existing = account.conversations.workflow.get(`host-session:${message.conversationId}`);
+                    if (existing)
+                        Object.assign(route, existing);
+                    const storePath = route.storePath;
                     const timestamp = Number(value["timestamp"]);
                     account.conversations.bindHostSession(message.conversationId, { storePath, sessionKey: route.sessionKey });
                     const messageText = String(value["rawText"] ?? "");
@@ -152,9 +151,12 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                             });
                         },
                         dispatchReplyWithBufferedBlockDispatcher: channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher,
+                        replyOptions: { runId: generationId ?? message.messageId, abortSignal: turn.signal },
                         delivery: {
                             deliver: async (payload) => {
                                 try {
+                                    if (turn.signal.aborted || account.conversations.workflow.forMessage(message.messageId)?.state === "cancelled")
+                                        return;
                                     const text = payload?.["text"];
                                     const mediaUrls = Array.isArray(payload?.["mediaUrls"]) ? payload["mediaUrls"] : typeof payload?.["mediaUrl"] === "string" ? [payload["mediaUrl"]] : [];
                                     if (mediaUrls.some(url => typeof url !== "string" || /^https?:/iu.test(url)))
@@ -168,7 +170,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                                         account.events.append({
                                             eventType: "conversation.message.completed",
                                             correlationId: message.messageId,
-                                            payload: { conversationId: message.conversationId, messageId, sender: "assistant", parts, text: typeof text === "string" ? text : "", timestamp: Date.now(), revision: 1 },
+                                            payload: { conversationId: message.conversationId, ...(generationId ? { generationId } : {}), messageId, sender: "assistant", parts, text: typeof text === "string" ? text : "", timestamp: Date.now(), revision: 1 },
                                         });
                                     }
                                     else if (payload !== undefined && Object.keys(payload).length > 0) {
@@ -188,6 +190,8 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                 },
             },
         })));
+        if (turn.signal.aborted)
+            return;
         if (runResult["dispatched"] !== true) {
             const admission = recordOf(runResult["admission"]);
             const reason = String(admission["reason"] ?? "");
@@ -203,6 +207,8 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
         account.conversations.markCompleted(message.messageId, `openclaw.completed.${message.messageId}`);
     }
     catch (error) {
+        if (turn.signal.aborted)
+            return;
         const observedCode = error instanceof Error && error.message === "ATTACHMENT_STORAGE_UNAVAILABLE"
             ? "ATTACHMENT_READ_FAILED"
             : error instanceof Error ? error.message : "";
@@ -225,7 +231,14 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
         log?.warn?.(`Open Android inbound dispatch failed: messageId=${message.messageId} code=${code}`);
     }
     finally {
-        for (const item of materialized)
-            item.cleanup();
+        try {
+            if (turn.signal.aborted)
+                account.conversations.workflow.completeCancellation(message.messageId, `openclaw.cancelled.${message.messageId}`);
+            for (const item of materialized)
+                item.cleanup();
+        }
+        finally {
+            turn.finish();
+        }
     }
 };

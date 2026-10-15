@@ -1,3 +1,5 @@
+import { resolveGatewayHostSession } from "./host-session.js";
+import { trackTurn } from "./active-turns.js";
 import { HistoryMedia } from "../core/history-media.js";
 import type { GatewayAccount } from "../core/gateway-core.js";
 import { createHash } from "node:crypto";
@@ -29,7 +31,6 @@ export type OpenClawInboundRuntime = Readonly<{
 
 export type AgentInboundMessage = GatewayMessage;
 
-type AgentRoute = Readonly<{ agentId: string; accountId: string; sessionKey: string }>;
 type InboundMediaFact = Readonly<{
   path: string;
   contentType: string;
@@ -63,6 +64,8 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
   log?: OpenClawLog;
 }>): Promise<void> => {
   const { account, message, channelRuntime, cfg, gatewayAccountId, channelAccountId, log } = input;
+  const generationId = account.conversations.workflow.forMessage(message.messageId)?.generationId;
+  const turn = trackTurn(gatewayAccountId, generationId ?? message.messageId);
   const materialized: Array<Readonly<{ path: string; cleanup: () => void }>> = [];
   let adopted = false;
   let delivered = false;
@@ -100,8 +103,6 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
 
     const run = channelRuntime.inbound.run as unknown as (params: Readonly<Record<string, unknown>>) => Promise<unknown>;
     const buildContext = channelRuntime.inbound.buildContext as unknown as (facts: Readonly<Record<string, unknown>>) => unknown;
-    const resolveAgentRoute = channelRuntime.routing.resolveAgentRoute as unknown as (facts: Readonly<Record<string, unknown>>) => AgentRoute;
-    const resolveStorePath = channelRuntime.session.resolveStorePath as unknown as (store?: string, options?: Readonly<Record<string, unknown>>) => string;
     const recordInboundSession = channelRuntime.session.recordInboundSession as unknown as (facts: Readonly<Record<string, unknown>>) => Promise<void>;
 
     const runResult = recordOf(await trustedDeviceTurn.run({accountId:gatewayAccountId,messageId:message.messageId},() => run({
@@ -141,17 +142,10 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
           const event = recordOf(value["raw"]);
           const gatewayMessage = recordOf(event["message"]);
           const facts = recordOf(preflight);
-          const route = resolveAgentRoute({
-            cfg,
-            channel: OPENCLAW_CHANNEL_ID,
-            accountId: channelAccountId,
-            peer: routePeer,
-          });
-          const session = recordOf(recordOf(cfg)["session"]);
-          const storePath = resolveStorePath(
-            typeof session["store"] === "string" ? session["store"] : undefined,
-            { agentId: route.agentId },
-          );
+          const route = await resolveGatewayHostSession(channelRuntime, cfg, channelAccountId, gatewayAccountId, message.conversationId);
+          const existing = account.conversations.workflow.get<{storePath:string;sessionKey:string}>(`host-session:${message.conversationId}`);
+          if (existing) Object.assign(route, existing);
+          const storePath = route.storePath;
           const timestamp = Number(value["timestamp"]);
           account.conversations.bindHostSession(message.conversationId, { storePath, sessionKey: route.sessionKey });
           const messageText = String(value["rawText"] ?? "");
@@ -202,9 +196,11 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
               });
             },
             dispatchReplyWithBufferedBlockDispatcher: channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher,
+            replyOptions: { runId: generationId ?? message.messageId, abortSignal: turn.signal },
             delivery: {
               deliver: async (payload?: Readonly<Record<string, unknown>>): Promise<void> => {
                 try {
+                if (turn.signal.aborted || account.conversations.workflow.forMessage(message.messageId)?.state === "cancelled") return;
                 const text = payload?.["text"];
                 const mediaUrls=Array.isArray(payload?.["mediaUrls"]) ? payload!["mediaUrls"] as unknown[] : typeof payload?.["mediaUrl"]==="string" ? [payload!["mediaUrl"]] : [];
                 if (mediaUrls.some(url=>typeof url!=="string" || /^https?:/iu.test(url))) throw new Error("AGENT_REPLY_UNSUPPORTED");
@@ -217,7 +213,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
                   account.events.append({
                     eventType: "conversation.message.completed",
                     correlationId: message.messageId,
-                    payload: { conversationId: message.conversationId, messageId, sender: "assistant", parts, text:typeof text==="string" ? text : "", timestamp: Date.now(), revision: 1 },
+                    payload: { conversationId: message.conversationId, ...(generationId ? { generationId } : {}), messageId, sender: "assistant", parts, text:typeof text==="string" ? text : "", timestamp: Date.now(), revision: 1 },
                   });
                 } else if (payload !== undefined && Object.keys(payload).length > 0) {
                   // Media-only replies need the host attachment port. A reply
@@ -235,6 +231,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
         },
       },
     })));
+    if (turn.signal.aborted) return;
     if (runResult["dispatched"] !== true) {
       const admission = recordOf(runResult["admission"]);
       const reason = String(admission["reason"] ?? "");
@@ -247,6 +244,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
     }
     account.conversations.markCompleted(message.messageId, `openclaw.completed.${message.messageId}`);
   } catch (error) {
+    if (turn.signal.aborted) return;
     const observedCode = error instanceof Error && error.message === "ATTACHMENT_STORAGE_UNAVAILABLE"
       ? "ATTACHMENT_READ_FAILED"
       : error instanceof Error ? error.message : "";
@@ -267,6 +265,9 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
     }
     log?.warn?.(`Open Android inbound dispatch failed: messageId=${message.messageId} code=${code}`);
   } finally {
-    for (const item of materialized) item.cleanup();
+    try {
+      if (turn.signal.aborted) account.conversations.workflow.completeCancellation(message.messageId, `openclaw.cancelled.${message.messageId}`);
+      for (const item of materialized) item.cleanup();
+    } finally { turn.finish(); }
   }
 };

@@ -127,8 +127,10 @@ export type GatewayCore = Readonly<{
   isDeviceOnline?: (accountId: string, deviceId: string, generation: number) => boolean;
   /** Resource-level removal of one logical Gateway (contract §13). */
   deleteGatewayAccount: (accountId: string) => boolean;
+  setCommandCatalogProvider?: (provider: () => Promise<readonly Record<string, unknown>[]>) => void;
+  setHostConversationCreator?: (create: (accountId:string,conversationId:string,title:string|null)=>Promise<{storePath:string;sessionKey:string}>) => void;
   setGenerationCanceller?: (cancel: GenerationCanceller) => void;
-  setHostSessionResolver?: (resolver:(accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined)=>void;
+  setHostSessionResolver?: (resolver:(accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined|Promise<Readonly<{storePath:string;sessionKey:string}>|undefined>)=>void;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
   uploadAttachmentContent?: (
     request: VerifiedGatewayRequest,
@@ -540,6 +542,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   const attachmentMasterKey = loadAttachmentMasterKey(options.attachmentMasterKey);
   const tlsSpkiSha256 = options.tlsSpkiSha256 ?? process.env["OPEN_ANDROID_INTELLIGENCE_GATEWAY_TLS_SPKI_SHA256"] ?? null;
   if (tlsSpkiSha256 !== null && (!/^sha256:[a-f0-9]{64}$/.test(tlsSpkiSha256) || tlsSpkiSha256 === `sha256:${"0".repeat(64)}`)) throw new Error("GATEWAY_TLS_IDENTITY_INVALID");
+  let commandCatalogProvider: (()=>Promise<readonly Record<string,unknown>[]>) | undefined;
+  let hostConversationCreator: ((accountId:string,conversationId:string,title:string|null)=>Promise<{storePath:string;sessionKey:string}>) | undefined;
   let generationCanceller: GenerationCanceller | undefined;
   let hostSessionResolver:Parameters<NonNullable<GatewayCore['setHostSessionResolver']>>[0]|undefined;
   const openAccount=async(accountId:string):Promise<GatewayAccount>=> {
@@ -945,6 +949,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   const online = new Map<string,{context:VerifiedRequestContext;count:number}>();
   return Object.freeze({
     gatewayIdentity: () => ({deploymentId:deploymentIdOf(resolveRoot()),tlsSpkiSha256}),
+    setCommandCatalogProvider: (provider):void => { commandCatalogProvider=provider; },
+    setHostConversationCreator: (create):void => { hostConversationCreator=create; },
     setGenerationCanceller: (cancel:GenerationCanceller):void => { generationCanceller=cancel; },
     setHostSessionResolver: (resolver:NonNullable<typeof hostSessionResolver>):void=> {hostSessionResolver=resolver;},
     openGatewayAccount: async (accountId: string): Promise<GatewayAccount> =>
@@ -1022,6 +1028,30 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             const pending = account.store.database.prepare("SELECT request_id FROM device_requests WHERE device_id=? AND pairing_generation=? AND state IN ('pending','claimed','cancel_requested') ORDER BY created_at").all(request.context!.deviceId,request.context!.pairingGeneration);
             return success(request,{baselineCursor:baseline.eventId,conversations:account.conversations.list(),
               pendingDeviceRequests:pending.map(row => (row as {request_id:string}).request_id),pairingGeneration:request.context!.pairingGeneration,grantRevision:request.context!.grantRevision});
+          }
+          if (request.method === "GET" && request.target.split("?")[0] === "/open-android-intelligence/v2/commands") {
+            const languageCode = new URL(request.target, "https://gateway.local").searchParams.get("languageCode") ?? "en";
+            const commands = commandCatalogProvider ? await commandCatalogProvider() : [];
+            return success(request, commandCatalog(languageCode, commands));
+          }
+          if (request.method === "POST" && request.target === "/open-android-intelligence/v2/conversations" && hostConversationCreator) {
+            assertSchema("conversation.create", request.body);
+            const context = request.context!;
+            const previous = account.store.database.prepare("SELECT 1 FROM idempotency_ledger WHERE device_id=? AND request_id=?").get(context.deviceId,context.requestId);
+            if (previous) return runIdempotent(account,request,()=> { throw new Error("OUTCOME_UNKNOWN"); });
+            // Validate request-key binding before provisioning anything in the host.
+            if (request.idempotencyKey !== context.requestId) return failure(request,"IDEMPOTENCY_CONFLICT");
+            const body = bodyRecord(request.body);
+            const reservationKey = `conversation-create:${context.deviceId}:${context.requestId}`;
+            const digest = createHash("sha256").update(canonicalJson({method:request.method,target:request.target,body:request.body})).digest("hex");
+            const reservation = account.conversations.workflow.get<{digest:string}>(reservationKey);
+            if (reservation && reservation.digest !== digest) return failure(request,"IDEMPOTENCY_CONFLICT");
+            account.conversations.workflow.put(reservationKey,{digest});
+            const conversation = account.conversations.create({ clientConversationId: String(body.clientConversationId),
+              ...(typeof body.title === "string" ? {title:body.title} : {}), correlationId:context.correlationId });
+            const binding = await hostConversationCreator(context.accountId, conversation.conversationId, conversation.title);
+            account.conversations.bindHostSession(conversation.conversationId, binding);
+            return runIdempotent(account,request,()=>success(request,{conversation}));
           }
           const currentGeneration=request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/generations\/current$/);
           if (request.method==="GET" && currentGeneration) {
@@ -1163,11 +1193,6 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             if (request.method === "DELETE" && request.target.split("?")[0] === UNPAIR_TARGET) {
               return unpairCurrent(request, account);
             }
-            if (request.method === "GET" && request.target.split("?")[0] === "/open-android-intelligence/v2/commands") {
-              const languageCode = new URL(`https://gateway.local${request.target}`)
-                .searchParams.get("languageCode") ?? "en";
-              return success(request, commandCatalog(languageCode));
-            }
             if (request.method === "GET" && request.target === "/open-android-intelligence/v2/conversations") {
               return success(request, { conversations: account.conversations.list() });
             }
@@ -1307,23 +1332,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
 
 export const COMMAND_CATALOG_FORMAT = "agent-command-catalog-1.0";
 
-const DEFAULT_COMMANDS = Object.freeze([
-  Object.freeze({
-    command: "/new",
-    description: "Start a new conversation thread",
-    argumentHint: "[title]",
-  }),
-]);
-
-const commandCatalog = (languageCode: string): Readonly<Record<string, unknown>> => {
-  const fingerprint = createHash("sha256")
-    .update(canonicalJson({ format: COMMAND_CATALOG_FORMAT, commands: DEFAULT_COMMANDS }), "utf8")
-    .digest("hex")
-    .slice(0, 16);
-  return {
-    format: COMMAND_CATALOG_FORMAT,
-    catalogVersion: `cmdcat_${fingerprint}`,
-    languageCode,
-    commands: DEFAULT_COMMANDS,
-  };
+const commandCatalog = (languageCode: string, commands: readonly Record<string,unknown>[]): Readonly<Record<string, unknown>> => {
+  const fingerprint = createHash("sha256").update(canonicalJson({ format: COMMAND_CATALOG_FORMAT, commands }), "utf8").digest("hex").slice(0,16);
+  return { format: COMMAND_CATALOG_FORMAT, catalogVersion: `cmdcat_${fingerprint}`, languageCode, commands };
 };
