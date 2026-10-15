@@ -43,7 +43,7 @@ export type GatewayMessage = Readonly<{
 
 export class ConversationPort {
   readonly workflow: ConversationWorkflow;
-  private hostSessionResolver?: (accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined;
+  private hostSessionResolver?: (accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined|Promise<Readonly<{storePath:string;sessionKey:string}>|undefined>;
   setHostSessionResolver(resolver:NonNullable<ConversationPort['hostSessionResolver']>):void {this.hostSessionResolver=resolver;}
   bindHostSession(conversationId: string, binding: Readonly<{ storePath: string; sessionKey: string }>): void {
     this.get(conversationId);
@@ -65,7 +65,7 @@ export class ConversationPort {
   async listMessages(conversationId: string, options: Readonly<{ clientMessageId?: string; cursor?: string; limit?: number }> = {}): Promise<Readonly<Record<string, unknown>>> {
     this.get(conversationId);
     if (!this.store.database.prepare("SELECT 1 FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`)) {
-      const resolved=this.hostSessionResolver?.(this.accountId,conversationId);
+      const resolved=await this.hostSessionResolver?.(this.accountId,conversationId);
       if(resolved) this.bindHostSession(conversationId,resolved);
     }
     type Row = { messageId: string; clientMessageId?: string; sender: string; text: string; timestamp: number; parts: unknown[]; state: string };
@@ -191,6 +191,12 @@ export class ConversationPort {
     correlationId: string;
     now?: Date;
   }>): ConversationRecord {
+    const existing = this.store.database.prepare("SELECT * FROM conversations WHERE client_conversation_id=?").get(input.clientConversationId) as Record<string,unknown> | undefined;
+    if (existing) {
+      const conversation = this.mapConversation(existing);
+      if (conversation.title !== (input.title ?? null)) throw new Error("IDEMPOTENCY_CONFLICT");
+      return conversation;
+    }
     const conversationId = `conv_${randomUUID()}`;
     this.store.database
       .prepare(`

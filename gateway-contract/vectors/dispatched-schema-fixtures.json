@@ -360,7 +360,7 @@
       "key": {
         "kind": "event",
         "eventType": "conversation.message.delta",
-        "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
+        "schemaSha256": "sha256:8ab1a176d26799ce6d35077012041ffdf5b1e4436deab828b1eeab94d8641894"
       },
       "schema": {
         "type": "object",
@@ -455,6 +455,10 @@
           "revision": {
             "type": "integer",
             "minimum": 0
+          },
+          "generationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
           }
         }
       }
@@ -464,7 +468,7 @@
       "key": {
         "kind": "event",
         "eventType": "conversation.message.completed",
-        "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
+        "schemaSha256": "sha256:8ab1a176d26799ce6d35077012041ffdf5b1e4436deab828b1eeab94d8641894"
       },
       "schema": {
         "type": "object",
@@ -559,6 +563,10 @@
           "revision": {
             "type": "integer",
             "minimum": 0
+          },
+          "generationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
           }
         }
       }
@@ -808,7 +816,7 @@
       "key": {
         "kind": "event",
         "eventType": "conversation.message.status",
-        "schemaSha256": "sha256:abc4431159960c4887471250ecff3580f2f7df32fe8a29b407af55bc3a35d12d"
+        "schemaSha256": "sha256:c0273af35da27dc35cdd0b74564323d957711a88c11cc8dcc7cea55cc7393fb1"
       },
       "schema": {
         "type": "object",
@@ -855,6 +863,10 @@
                   "AGENT_MEDIA_REJECTED",
                   "MODEL_REQUEST_REJECTED"
                 ]
+              },
+              "generationId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._~-]{1,128}$"
               }
             }
           },
@@ -898,6 +910,10 @@
               },
               "errorCode": {
                 "type": "null"
+              },
+              "generationId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._~-]{1,128}$"
               }
             }
           }
@@ -908,7 +924,11 @@
           "clientMessageId": {},
           "status": {},
           "revision": {},
-          "errorCode": {}
+          "errorCode": {},
+          "generationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          }
         }
       }
     }
@@ -975,14 +995,14 @@
             "kind": "event",
             "eventType": "conversation.message.delta"
           },
-          "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
+          "schemaSha256": "sha256:8ab1a176d26799ce6d35077012041ffdf5b1e4436deab828b1eeab94d8641894"
         },
         {
           "key": {
             "kind": "event",
             "eventType": "conversation.message.completed"
           },
-          "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
+          "schemaSha256": "sha256:8ab1a176d26799ce6d35077012041ffdf5b1e4436deab828b1eeab94d8641894"
         },
         {
           "key": {
@@ -1031,7 +1051,7 @@
             "kind": "event",
             "eventType": "conversation.message.status"
           },
-          "schemaSha256": "sha256:abc4431159960c4887471250ecff3580f2f7df32fe8a29b407af55bc3a35d12d"
+          "schemaSha256": "sha256:c0273af35da27dc35cdd0b74564323d957711a88c11cc8dcc7cea55cc7393fb1"
         }
       ]
     }

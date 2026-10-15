@@ -1,8 +1,10 @@
+import { resolveGatewayHostSession } from "./host-session.js";
+import { abortTrackedTurn } from "./active-turns.js";
 import { registerDeviceTools } from "./device-tools.js";
 import { existsSync } from "node:fs";
 import { createGatewayCore } from "../core/gateway-core.js";
 import { createGatewayRequestVerifier } from "../http/request-verifier.js";
-import { dispatchGatewayMessageToOpenClaw, OPENCLAW_CHANNEL_ID } from "./inbound-dispatch.js";
+import { dispatchGatewayMessageToOpenClaw } from "./inbound-dispatch.js";
 import { createAdminCliRegistrar, bindAdminService, } from "../admin/cli.js";
 import { createAdminPanel, createAdminService, } from "../admin/service.js";
 import { createGatewayExposure, OPENCLAW_HOST_API, } from "../http/routes.js";
@@ -74,13 +76,9 @@ const startInboundWorker = (core, channelAccountId, runtime, cfg, abortSignal, l
     let nextAccountIndex = 0;
     const nextAttachmentSweepAt = new Map();
     if (runtime)
-        core.setHostSessionResolver?.((accountId, conversationId) => {
-            const route = runtime.routing.resolveAgentRoute({ cfg, channel: OPENCLAW_CHANNEL_ID, accountId: channelAccountId, peer: { kind: "direct", id: `${accountId}:${conversationId}` } });
-            if (typeof route.agentId !== "string" || typeof route.sessionKey !== "string")
-                return undefined;
-            const session = cfg?.session;
-            const storePath = runtime.session.resolveStorePath(session?.store, { agentId: route.agentId });
-            return existsSync(storePath) ? { storePath, sessionKey: route.sessionKey } : undefined;
+        core.setHostSessionResolver?.(async (accountId, conversationId) => {
+            const binding = await resolveGatewayHostSession(runtime, cfg, channelAccountId, accountId, conversationId);
+            return existsSync(binding.storePath) ? { storePath: binding.storePath, sessionKey: binding.sessionKey } : undefined;
         });
     const run = async () => {
         while (!abortSignal.aborted) {
@@ -160,7 +158,7 @@ const startInboundWorker = (core, channelAccountId, runtime, cfg, abortSignal, l
         log?.error?.(`Open Android Gateway inbound worker stopped: code=${error instanceof Error ? error.name : "unknown"}`);
     });
 };
-export const createOpenAndroidIntelligenceChannel = (core) => {
+export const createOpenAndroidIntelligenceChannel = (core, onAccountStart) => {
     return Object.freeze({
         ...OPEN_ANDROID_INTELLIGENCE_CHANNEL,
         config: Object.freeze({
@@ -180,6 +178,7 @@ export const createOpenAndroidIntelligenceChannel = (core) => {
                     asLog(context["log"])?.error?.("Open Android channel startAccount missing accountId or AbortSignal");
                     return;
                 }
+                onAccountStart?.(hostAccountId, context["cfg"]);
                 startInboundWorker(core, hostAccountId, asInboundRuntime(context["channelRuntime"]), context["cfg"], signal, asLog(context["log"]));
             },
         }),
@@ -239,6 +238,33 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
         tlsSpkiSha256: typeof api.pluginConfig?.["tlsSpkiSha256"] === "string" ? api.pluginConfig["tlsSpkiSha256"] : undefined,
     });
     const nativeGateway = api.runtime?.gateway;
+    let activeChannelAccountId = "default";
+    let activeConfig = api.config;
+    if (typeof nativeGateway?.request === "function") {
+        services.core.setCommandCatalogProvider?.(async () => {
+            const result = await nativeGateway.request("commands.list", { scope: "text", includeArgs: true }, { timeoutMs: 8000 });
+            if (!Array.isArray(result.commands))
+                throw new Error("AGENT_UNAVAILABLE");
+            return result.commands.flatMap(entry => {
+                const name = typeof entry.name === "string" ? entry.name.replace(/^\//u, "") : "";
+                if (!/^[a-z0-9_-]+$/u.test(name) || typeof entry.description !== "string")
+                    return [];
+                const args = Array.isArray(entry.args) ? entry.args : [];
+                return [{ id: name, invocation: `/${name}`, title: name, description: entry.description || name, acceptsArguments: entry.acceptsArgs === true, availability: "available",
+                        ...(args.length ? { argumentHint: args.map(arg => arg.required ? `<${arg.name}>` : `[${arg.name}]`).join(" ") } : {}) }];
+            });
+        });
+        const runtime = asInboundRuntime(api.runtime?.channel);
+        if (runtime)
+            services.core.setHostConversationCreator?.(async (accountId, conversationId, title) => {
+                const binding = await resolveGatewayHostSession(runtime, activeConfig, activeChannelAccountId, accountId, conversationId);
+                const result = await nativeGateway.request("sessions.create", { key: binding.sessionKey, agentId: binding.agentId,
+                    ...(title ? { label: title } : {}) }, { timeoutMs: 8000 });
+                if (result.ok !== true || result.key !== binding.sessionKey || result.runStarted === true)
+                    throw new Error("AGENT_UNAVAILABLE");
+                return { storePath: binding.storePath, sessionKey: binding.sessionKey };
+            });
+    }
     if (typeof nativeGateway?.request === "function")
         services.core.setGenerationCanceller?.(async (accountId, conversationId, generationId) => {
             const account = await services.core.openGatewayAccount(accountId);
@@ -246,12 +272,15 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
                 const generation = account.conversations.workflow.get(`generation:${generationId}`);
                 if (generation?.state === "completed" || generation?.state === "failed")
                     return "ALREADY_COMPLETED";
+                const tracked = await abortTrackedTurn(accountId, generationId);
+                if (tracked)
+                    return tracked;
                 const binding = account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`);
                 if (!binding)
                     return "OUTCOME_UNKNOWN";
                 const trusted = JSON.parse(binding.value);
                 // Pinned OpenClaw Runtime.gateway.request dispatches the real native stop RPC.
-                const result = await nativeGateway.request("chat.abort", { sessionKey: trusted.sessionKey }, { timeoutMs: 8000 });
+                const result = await nativeGateway.request("chat.abort", { sessionKey: trusted.sessionKey, runId: generationId }, { timeoutMs: 8000 });
                 if (result.ok === true && result.aborted === true)
                     return "CANCELLED";
                 const terminal = account.conversations.workflow.get(`generation:${generationId}`);
@@ -262,7 +291,7 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
             }
         });
     api.registerChannel(Object.freeze({
-        plugin: createOpenAndroidIntelligenceChannel(services.core),
+        plugin: createOpenAndroidIntelligenceChannel(services.core, (accountId, cfg) => { activeChannelAccountId = accountId; activeConfig = cfg; }),
     }));
     for (const route of services.exposure.routes) {
         api.registerHttpRoute({

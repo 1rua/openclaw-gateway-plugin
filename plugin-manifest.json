@@ -3,7 +3,7 @@
   "backend": "openclaw",
   "upstream": { "release": "2026.7.1-2", "tag": "v2026.7.1-2", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "protocolVersion": "2.1.0",
-  "capabilitySchemaHash": "sha256:63223ba149355032800eeae8a9f0827d542bbde7ca9e4eeb19f93df30e7febde",
+  "capabilitySchemaHash": "sha256:59244afa522108614123e4d047a8ff51f6f2e2651e9b800bb8c63e5e6e82d320",
   "hostApi": { "min": "2026.7.1", "max": "2026.7.1", "commit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c" },
   "authoritativeProfiles": { "chat": "gateway", "tool": "plugin", "event": "plugin-hook" },
   "profiles": [
@@ -23,7 +23,7 @@
     "attachmentPolicy": true,
     "sse": true,
     "messageBatches": false,
-    "generationCancel": false,
+    "generationCancel": true,
     "mirrorSync": false,
     "invitationPairing": false,
     "deviceKeySessions": false,

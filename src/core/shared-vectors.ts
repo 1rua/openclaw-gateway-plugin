@@ -89,7 +89,7 @@ const EXPECTED_CATALOG_FIXTURE_IDS = Object.freeze([
   "event.attachment-acknowledged.v1",
   "event.message-status.v1",
 ] as const);
-const MESSAGE_STATUS_SCHEMA_SHA256 = "sha256:abc4431159960c4887471250ecff3580f2f7df32fe8a29b407af55bc3a35d12d";
+const MESSAGE_STATUS_SCHEMA_SHA256 = "sha256:c0273af35da27dc35cdd0b74564323d957711a88c11cc8dcc7cea55cc7393fb1";
 
 export type ConformanceVectorOperation =
   | "request.target"

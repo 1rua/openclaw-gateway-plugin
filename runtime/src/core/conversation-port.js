@@ -30,7 +30,7 @@ export class ConversationPort {
     async listMessages(conversationId, options = {}) {
         this.get(conversationId);
         if (!this.store.database.prepare("SELECT 1 FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`)) {
-            const resolved = this.hostSessionResolver?.(this.accountId, conversationId);
+            const resolved = await this.hostSessionResolver?.(this.accountId, conversationId);
             if (resolved)
                 this.bindHostSession(conversationId, resolved);
         }
@@ -161,6 +161,13 @@ export class ConversationPort {
         });
     }
     create(input) {
+        const existing = this.store.database.prepare("SELECT * FROM conversations WHERE client_conversation_id=?").get(input.clientConversationId);
+        if (existing) {
+            const conversation = this.mapConversation(existing);
+            if (conversation.title !== (input.title ?? null))
+                throw new Error("IDEMPOTENCY_CONFLICT");
+            return conversation;
+        }
         const conversationId = `conv_${randomUUID()}`;
         this.store.database
             .prepare(`
