@@ -1,0 +1,48 @@
+
+ RUN  v4.1.11 /mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw
+
+ ❯ test/history-media-stream.test.ts (16 tests | 2 failed) 471ms
+   × 真实 Ed25519 HTTP 返回原类型和摘要，JSON 原件与非法 MIME 均不混淆 153ms
+   × 用户上传采用完成后才 ACK，暂存清理后仍保留原始身份、历史卡片和可读原件 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/history-media-stream.test.ts > 真实 Ed25519 HTTP 返回原类型和摘要，JSON 原件与非法 MIME 均不混淆
+Error: SCHEMA_INVALID
+ ❯ schemaInvalid gateway-contract/src/request-signature.ts:20:9
+     18|
+     19| const schemaInvalid = (): never => {
+     20|   throw new Error("SCHEMA_INVALID");
+       |         ^
+     21| };
+     22|
+ ❯ assertCanonicalBase64Url gateway-contract/src/request-signature.ts:173:83
+ ❯ assertExactSignedRequestFields gateway-contract/src/request-signature.ts:212:3
+ ❯ canonicalRequestSignatureInput gateway-contract/src/request-signature.ts:217:3
+ ❯ request test/history-media-stream.test.ts:151:34
+ ❯ test/history-media-stream.test.ts:163:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/history-media-stream.test.ts > 用户上传采用完成后才 ACK，暂存清理后仍保留原始身份、历史卡片和可读原件
+AssertionError: expected 'acknowledged' to be 'deleted' // Object.is equality
+
+Expected: "deleted"
+Received: "acknowledged"
+
+ ❯ test/history-media-stream.test.ts:215:68
+    213|     const runtime = inboundRuntime(root, async (_turn, params) => { ex…
+    214|     await dispatchGatewayMessageToOpenClaw({ account, message, channel…
+    215|     expect(account.attachments.get(attachment.attachmentId).state).toB…
+       |                                                                    ^
+    216|     const row = ((await account.conversations.listMessages(cid)).messa…
+    217|     expect(row.parts).toEqual([{ type: "attachment", attachmentId: att…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 passed (16)
+   Start at  09:09:10
+   Duration  1.11s (transform 202ms, setup 0ms, import 518ms, tests 471ms, environment 0ms)
+

@@ -1,0 +1,1 @@
+已从契约 pin 851abc44e7ebf5a5aa0ea7ffe311d59be1538058 生成快照：/mnt/data/projects/open-android-intelligence/.worktrees/local-history-recovery/openclaw-generated-contract-final/gateway-contract

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw
+
+
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
+   Start at  09:06:08
+   Duration  1.03s (transform 824ms, setup 0ms, import 2.58s, tests 608ms, environment 0ms)
+

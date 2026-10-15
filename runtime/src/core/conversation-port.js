@@ -1,7 +1,7 @@
 import { ConversationWorkflow } from "./conversation-workflow.js";
 import { HistoryMedia } from "./history-media.js";
 import { randomUUID, createHash } from "node:crypto";
-import { readNativeHistory } from "../host/native-history.js";
+import { nativeHistoryStamp, readNativeHistory } from "../host/native-history.js";
 import { DEFAULT_ATTACHMENT_POLICY } from "./attachment-policy.js";
 export class ConversationPort {
     accountId;
@@ -23,6 +23,10 @@ export class ConversationPort {
         this.store.database.prepare("INSERT OR IGNORE INTO account_metadata(key,value) VALUES (?,?)")
             .run(`history-ref:${conversationId}:${messageId}`, JSON.stringify({ messageId, sender, digest, clientMessageId, timestamp: Date.now() }));
     }
+    historySourceStamp(conversationId) {
+        const row = this.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`);
+        return row === undefined ? "" : nativeHistoryStamp(JSON.parse(row.value));
+    }
     async listMessages(conversationId, options = {}) {
         this.get(conversationId);
         if (!this.store.database.prepare("SELECT 1 FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`)) {
@@ -31,6 +35,12 @@ export class ConversationPort {
                 this.bindHostSession(conversationId, resolved);
         }
         const messages = new Map();
+        const media = new HistoryMedia(this.store, this.accountId);
+        const replyParts = (messageId) => this.store.database.prepare("SELECT key,value FROM account_metadata WHERE key LIKE ?").all(`history-media-reply:${messageId}:%`)
+            .sort((a, b) => Number(a.key.split(":").at(-1)) - Number(b.key.split(":").at(-1)))
+            .map(row => this.store.openJson(row.value, row.key));
+        const seenNative = new Set(this.store.database.prepare("SELECT value FROM account_metadata WHERE key LIKE ?").all(`history-native:${conversationId}:%`).map(row => row.value));
+        const currentNative = new Set();
         const queued = this.store.database.prepare("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,message_id")
             .all(conversationId);
         // Older versions kept an adopted inbound body in Gateway storage. Bind it
@@ -53,35 +63,54 @@ export class ConversationPort {
                     ref.digest === digest || !!row.clientMessageId && ref.clientMessageId === row.clientMessageId));
                 const ref = index >= 0 ? refs.splice(index, 1)[0] : undefined;
                 const messageId = mapped?.value ?? ref?.messageId ?? `msg_host_${createHash("sha256").update(`${this.accountId}:${conversationId}:${row.nativeId}`).digest("hex").slice(0, 40)}`;
+                currentNative.add(messageId);
                 this.store.database.prepare("INSERT OR IGNORE INTO account_metadata(key,value) VALUES (?,?)").run(key, messageId);
                 if (row.sender === "user" && ref) {
                     this.store.database.prepare("UPDATE messages SET body='' WHERE message_id=? AND status IN ('delivered','completed')").run(messageId);
                 }
+                const queuedRow = queued.find(item => item.message_id === messageId);
+                const uploaded = row.sender === "user" && queuedRow ? media.uploadParts(conversationId, this.mapMessage(queuedRow).attachmentIds, messageId) : [];
+                const attachments = [...(uploaded.length > 0 ? uploaded : (row.mediaPaths ?? []).flatMap(path => {
+                        try {
+                            return [media.register(conversationId, messageId, path)];
+                        }
+                        catch {
+                            return [];
+                        }
+                    })), ...replyParts(messageId)];
+                const uniqueParts = [...new Map(attachments.map(part => [String(part.attachmentId), part])).values()];
+                if (row.deleted)
+                    media.markDeleted(conversationId, messageId);
                 messages.set(messageId, { messageId, ...(ref?.clientMessageId || row.clientMessageId ? { clientMessageId: ref?.clientMessageId ?? row.clientMessageId } : {}),
                     sender: row.sender, text: row.deleted ? "" : row.text, timestamp: row.timestamp,
-                    parts: row.deleted ? [] : [{ type: "text", text: row.text }, ...(row.mediaPaths ?? []).flatMap(path => {
-                            try {
-                                return [new HistoryMedia(this.store, this.accountId).register(conversationId, messageId, path)];
-                            }
-                            catch {
-                                return [];
-                            }
-                        }), ...this.store.database.prepare("SELECT key,value FROM account_metadata WHERE key LIKE ?").all(`history-media-reply:${messageId}:%`).map(raw => {
-                            const r = raw;
-                            return this.store.openJson(r.value, r.key);
-                        })], state: row.deleted ? "DELETED" : "CONFIRMED" });
+                    parts: row.deleted ? [] : [...(row.text.length > 0 ? [{ type: "text", text: row.text }] : []), ...uniqueParts], state: row.deleted ? "DELETED" : "CONFIRMED" });
             }
+            for (const messageId of seenNative) {
+                if (currentNative.has(messageId))
+                    continue;
+                media.markDeleted(conversationId, messageId);
+                const ref = refs.find(item => item.messageId === messageId);
+                messages.set(messageId, { messageId, sender: ref?.sender ?? "assistant", text: "", parts: [], timestamp: ref?.timestamp ?? 0, state: "DELETED" });
+            }
+        }
+        for (const ref of refs) {
+            if (messages.has(ref.messageId) || seenNative.has(ref.messageId))
+                continue;
+            const parts = replyParts(ref.messageId);
+            if (ref.sender === "assistant" && parts.length > 0)
+                messages.set(ref.messageId, { messageId: ref.messageId, sender: ref.sender, text: "", timestamp: ref.timestamp, parts, state: "CONFIRMED" });
         }
         for (const raw of queued) {
             const message = this.mapMessage(raw);
             if (messages.has(message.messageId))
                 continue;
+            const uploaded = media.uploadParts(conversationId, message.attachmentIds, message.messageId);
             // Accepted sends can always be queried, even after their transient body was ACKed.
-            if (raw.body === "" && options.clientMessageId === undefined)
+            if (raw.body === "" && options.clientMessageId === undefined && uploaded.length === 0)
                 continue;
             messages.set(message.messageId, { messageId: message.messageId, clientMessageId: message.clientMessageId,
                 sender: "user", text: message.text, timestamp: Date.parse(message.createdAt),
-                parts: [{ type: "text", text: message.text }], state: message.status });
+                parts: [...(message.text.length > 0 ? [{ type: "text", text: message.text }] : []), ...uploaded], state: message.status });
         }
         const expanded = [...messages.values()].flatMap(row => this.workflow.expandHistory(row));
         let rows = expanded.sort((a, b) => a.timestamp - b.timestamp || a.messageId.localeCompare(b.messageId));

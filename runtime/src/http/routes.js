@@ -287,6 +287,57 @@ const writeSseChunk = async (response, chunk) => {
         response.once("error", onError);
     });
 };
+const writeHistoryMedia = async (response, body) => {
+    const stream = body.bodyStream;
+    const close = () => stream.close();
+    response.once("close", close);
+    response.once("error", close);
+    try {
+        const iterator = stream.chunks();
+        // 第一块同时执行当前授权和来源检查，失败仍可返回标准错误外壳。
+        const first = await iterator.next();
+        response.statusCode = 200;
+        for (const [name, value] of Object.entries(stream.headers))
+            response.setHeader(name, value);
+        const write = async (block) => {
+            if (response.destroyed || response.writableEnded)
+                throw new Error("MEDIA_CLIENT_DISCONNECTED");
+            if (response.write(block))
+                return;
+            await new Promise((resolve, reject) => {
+                const finish = (error) => {
+                    response.removeListener("drain", drain);
+                    response.removeListener("close", disconnected);
+                    response.removeListener("error", failed);
+                    if (error)
+                        reject(error);
+                    else
+                        resolve();
+                };
+                const drain = () => finish();
+                const disconnected = () => finish(new Error("MEDIA_CLIENT_DISCONNECTED"));
+                const failed = (error) => finish(error);
+                response.once("drain", drain);
+                response.once("close", disconnected);
+                response.once("error", failed);
+            });
+        };
+        if (!first.done)
+            await write(first.value);
+        for (;;) {
+            const next = await iterator.next();
+            if (next.done)
+                break;
+            await write(next.value);
+        }
+        response.end();
+    }
+    finally {
+        stream.close();
+        response.removeListener("close", close);
+        response.removeListener("error", close);
+    }
+};
 const writeSseEvent = async (response, event) => {
     const data = JSON.stringify({
         correlationId: event.correlationId,
@@ -568,6 +619,20 @@ const createRoute = (routePath, match, services) => {
             return await streamGatewayEvents(request, response, verifiedRequest, target, services);
         }
         const coreResponse = await services.core.handle(verifiedRequest);
+        if (coreResponse.bodyStream !== undefined) {
+            try {
+                await writeHistoryMedia(response, coreResponse);
+            }
+            catch (error) {
+                if (response.headersSent) {
+                    response.destroy();
+                    return null;
+                }
+                const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
+                return rawFailureResponse({ verifiedRequest }, ["SESSION_REVOKED", "AUTHENTICATION_FAILED", "ATTACHMENT_NOT_FOUND", "SCHEMA_INVALID"].includes(code) ? code : "INTERNAL_ERROR");
+            }
+            return null;
+        }
         return Object.freeze({
             statusCode: errorStatus(coreResponse),
             headers: responseHeaders,

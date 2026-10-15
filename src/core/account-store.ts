@@ -20,6 +20,7 @@ export type CommittedEventNotification = Readonly<{
 }>;
 
 export type GatewayAccountStore = Readonly<{
+  storageOwner: string;
   database: DatabaseSync;
   transaction: <T>(work: () => T, hooks?: TransactionHooks) => T;
   subscribeCommittedEvents: (listener: (event: CommittedEventNotification) => void) => () => void;
@@ -396,6 +397,7 @@ export const openAccountStore = (paths: AccountPaths, payload?: Readonly<{ accou
   const hubKey = eventHubKey(paths.database);
   const failNextCommit = { value: false };
   return Object.freeze({
+    storageOwner: paths.root,
     database,
     sealString: (value, purpose) => cipher.seal(value, purpose),
     openString: (value, purpose) => cipher.open(value, purpose),

@@ -47,6 +47,9 @@ jobs:
           OPEN_ANDROID_GATEWAY_CONTRACT_ROOT: ${{ github.workspace }}/.contract-source/gateway-contract
 
       - name: Typecheck and test
+        env:
+          OPENCLAW_HOME: ${{ runner.temp }}/oai-openclaw-test-home
+          OPENCLAW_STATE_DIR: ${{ runner.temp }}/oai-openclaw-test-state
         run: |
           npm run typecheck
           npm test

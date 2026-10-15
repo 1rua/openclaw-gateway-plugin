@@ -1,0 +1,423 @@
+{
+  "registry": {
+    "source": "derived",
+    "diagnostics": [
+      {
+        "level": "warn",
+        "code": "persisted-registry-stale-source",
+        "message": "Persisted plugin registry is missing recoverable managed npm plugins; using derived plugin index. Run `openclaw plugins registry --refresh` to update the persisted registry."
+      }
+    ]
+  },
+  "plugins": [],
+  "diagnostics": [
+    {
+      "level": "warn",
+      "pluginId": "active-memory",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/active-memory",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/active-memory, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "admin-http-rpc",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/admin-http-rpc",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/admin-http-rpc, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "alibaba",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/alibaba",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/alibaba, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "anthropic",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/anthropic",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/anthropic, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "azure-speech",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/azure-speech",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/azure-speech, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "bonjour",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/bonjour",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/bonjour, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "browser",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/browser",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/browser, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "byteplus",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/byteplus",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/byteplus, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "canvas",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/canvas",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/canvas, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "clawrouter",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/clawrouter",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/clawrouter, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "codex-supervisor",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/codex-supervisor",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/codex-supervisor, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "cohere",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/cohere",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/cohere, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "comfy",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/comfy",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/comfy, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "copilot-proxy",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/copilot-proxy",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/copilot-proxy, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "deepgram",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/deepgram",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/deepgram, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "device-pair",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/device-pair",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/device-pair, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "document-extract",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/document-extract",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/document-extract, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "duckduckgo",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/duckduckgo",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/duckduckgo, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "elevenlabs",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/elevenlabs",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/elevenlabs, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "fal",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/fal",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/fal, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "file-transfer",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/file-transfer",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/file-transfer, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "github-copilot",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/github-copilot",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/github-copilot, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "google",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/google",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/google, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "huggingface",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/huggingface",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/huggingface, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "imessage",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/imessage",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/imessage, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "litellm",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/litellm",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/litellm, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "llm-task",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/llm-task",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/llm-task, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "lmstudio",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/lmstudio",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/lmstudio, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "logbook",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/logbook",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/logbook, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "memory-core",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/memory-core",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/memory-core, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "memory-wiki",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/memory-wiki",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/memory-wiki, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "meta",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/meta",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/meta, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "microsoft",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/microsoft",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/microsoft, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "microsoft-foundry",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/microsoft-foundry",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/microsoft-foundry, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "migrate-claude",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/migrate-claude",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/migrate-claude, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "migrate-hermes",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/migrate-hermes",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/migrate-hermes, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "minimax",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/minimax",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/minimax, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "mistral",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/mistral",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/mistral, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "novita",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/novita",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/novita, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "nvidia",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/nvidia",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/nvidia, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "oc-path",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/oc-path",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/oc-path, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "ollama",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/ollama",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/ollama, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "open-prose",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/open-prose",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/open-prose, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "openai",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/openai",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/openai, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "opencode",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/opencode",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/opencode, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "opencode-go",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/opencode-go",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/opencode-go, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "openrouter",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/openrouter",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/openrouter, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "phone-control",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/phone-control",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/phone-control, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "policy",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/policy",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/policy, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "runway",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/runway",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/runway, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "senseaudio",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/senseaudio",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/senseaudio, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "sglang",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/sglang",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/sglang, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "synthetic",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/synthetic",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/synthetic, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "talk-voice",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/talk-voice",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/talk-voice, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "telegram",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/telegram",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/telegram, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "thread-ownership",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/thread-ownership",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/thread-ownership, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "together",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/together",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/together, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "tts-local-cli",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/tts-local-cli",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/tts-local-cli, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "vllm",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/vllm",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/vllm, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "volcengine",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/volcengine",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/volcengine, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "voyage",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/voyage",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/voyage, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "vydra",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/vydra",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/vydra, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "web-readability",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/web-readability",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/web-readability, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "webhooks",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/webhooks",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/webhooks, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "workboard",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/workboard",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/workboard, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "xai",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/xai",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/xai, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "xiaomi",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/xiaomi",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw/node_modules/openclaw/dist/extensions/xiaomi, mode=777)"
+    },
+    {
+      "level": "warn",
+      "pluginId": "open-android-intelligence-gateway",
+      "source": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-recovery/openclaw-smoke-state/extensions/open-android-intelligence-gateway",
+      "message": "blocked plugin candidate: world-writable path (/mnt/data/projects/open-android-intelligence/.worktrees/local-history-recovery/openclaw-smoke-state/extensions/open-android-intelligence-gateway, mode=777)"
+    }
+  ]
+}

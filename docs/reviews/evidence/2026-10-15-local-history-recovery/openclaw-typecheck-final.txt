@@ -1,0 +1,4 @@
+
+> @open-android-intelligence/openclaw@1.0.2 typecheck
+> tsc --noEmit -p tsconfig.test.json
+

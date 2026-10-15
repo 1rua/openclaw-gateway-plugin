@@ -1,0 +1,21 @@
+
+ RUN  v4.1.11 /mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw
+
+ ❯ test/history-media-stream.test.ts (16 tests | 1 failed) 1421ms
+   × 用户上传采用完成后才 ACK，暂存清理后仍保留原始身份、历史卡片和可读原件 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/history-media-stream.test.ts > 用户上传采用完成后才 ACK，暂存清理后仍保留原始身份、历史卡片和可读原件
+TypeError: Cannot read properties of undefined (reading 'parts')
+ ❯ test/history-media-stream.test.ts:217:16
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)
+   Start at  09:10:07
+   Duration  2.07s (transform 206ms, setup 0ms, import 528ms, tests 1.42s, environment 0ms)
+

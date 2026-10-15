@@ -40,6 +40,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
         for (const attachmentId of message.attachmentIds) {
             materialized.push(await account.attachments.materializeVerified(attachmentId));
         }
+        new HistoryMedia(account.store, account.accountId).adoptInbound(message.conversationId, message.messageId, attachments, materialized.map(item => item.path));
         const mediaInputs = attachments.map((attachment, index) => Object.freeze({
             path: materialized[index].path,
             contentType: attachment.mediaType,
@@ -160,9 +161,9 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                                         throw new Error("AGENT_REPLY_UNSUPPORTED");
                                     if (typeof text === "string" || mediaUrls.length > 0) {
                                         const messageId = `msg_${createHash("sha256").update(JSON.stringify([message.messageId, text ?? "", mediaUrls])).digest("hex").slice(0, 40)}`;
-                                        account.conversations.recordHistoryBinding(message.conversationId, messageId, "assistant", typeof text === "string" ? text : "");
                                         const workspace = recordOf(recordOf(recordOf(cfg)["agents"])["defaults"])["workspace"];
                                         const parts = [...(typeof text === "string" ? [{ type: "text", text }] : []), ...mediaUrls.map(url => new HistoryMedia(account.store, account.accountId).register(message.conversationId, messageId, String(url), String(payload?.["mediaType"] ?? "application/octet-stream"), typeof workspace === "string" ? [workspace] : []))];
+                                        account.conversations.recordHistoryBinding(message.conversationId, messageId, "assistant", typeof text === "string" ? text : "");
                                         parts.filter(p => p.type === "attachment").forEach((part, i) => { const key = `history-media-reply:${messageId}:${i}`; account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)").run(key, account.store.sealJson(part, key)); });
                                         account.events.append({
                                             eventType: "conversation.message.completed",

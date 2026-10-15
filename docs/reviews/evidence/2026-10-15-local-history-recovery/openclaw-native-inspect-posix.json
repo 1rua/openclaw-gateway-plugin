@@ -1,0 +1,128 @@
+{
+  "workspaceDir": "/tmp/oai-openclaw-permissions-ye9aq8q0/home/.openclaw/workspace",
+  "plugin": {
+    "id": "open-android-intelligence-gateway",
+    "name": "Open Android Intelligence Gateway",
+    "description": "Open Android Intelligence Gateway Protocol v2 channel and management adapter",
+    "version": "1.0.2",
+    "packageName": "@open-android-intelligence/openclaw",
+    "format": "openclaw",
+    "source": "/tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway/runtime/adapter.js",
+    "rootDir": "/tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway",
+    "origin": "global",
+    "enabled": true,
+    "compat": [],
+    "explicitlyEnabled": true,
+    "activated": true,
+    "activationSource": "explicit",
+    "activationReason": "enabled in config",
+    "syntheticAuthRefs": [],
+    "status": "loaded",
+    "toolNames": [
+      "open_android_device"
+    ],
+    "hookNames": [],
+    "channelIds": [
+      "open-android-intelligence-gateway"
+    ],
+    "cliBackendIds": [],
+    "providerIds": [],
+    "embeddingProviderIds": [],
+    "speechProviderIds": [],
+    "realtimeTranscriptionProviderIds": [],
+    "realtimeVoiceProviderIds": [],
+    "mediaUnderstandingProviderIds": [],
+    "transcriptSourceProviderIds": [],
+    "imageGenerationProviderIds": [],
+    "videoGenerationProviderIds": [],
+    "musicGenerationProviderIds": [],
+    "webFetchProviderIds": [],
+    "webSearchProviderIds": [],
+    "migrationProviderIds": [],
+    "contextEngineIds": [],
+    "memoryEmbeddingProviderIds": [],
+    "agentHarnessIds": [],
+    "cliCommands": [
+      "open-android-intelligence",
+      "open-android-intelligence"
+    ],
+    "services": [],
+    "gatewayDiscoveryServiceIds": [],
+    "commands": [],
+    "httpRoutes": 19,
+    "hookCount": 1,
+    "configSchema": true,
+    "configJsonSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "contracts": {
+      "tools": [
+        "open_android_device"
+      ]
+    },
+    "imported": true,
+    "dependencyStatus": {
+      "hasDependencies": false,
+      "installed": true,
+      "requiredInstalled": true,
+      "optionalInstalled": true,
+      "missing": [],
+      "missingOptional": [],
+      "dependencies": [],
+      "optionalDependencies": []
+    }
+  },
+  "shape": "plain-capability",
+  "capabilityMode": "plain",
+  "capabilityCount": 1,
+  "capabilities": [
+    {
+      "kind": "channel",
+      "ids": [
+        "open-android-intelligence-gateway"
+      ]
+    }
+  ],
+  "typedHooks": [
+    {
+      "name": "after_tool_call"
+    }
+  ],
+  "customHooks": [],
+  "tools": [
+    {
+      "names": [
+        "open_android_device"
+      ],
+      "optional": false
+    }
+  ],
+  "commands": [],
+  "cliCommands": [
+    "open-android-intelligence",
+    "open-android-intelligence"
+  ],
+  "services": [],
+  "gatewayDiscoveryServices": [],
+  "gatewayMethods": [],
+  "mcpServers": [],
+  "lspServers": [],
+  "httpRouteCount": 19,
+  "bundleCapabilities": [],
+  "diagnostics": [],
+  "policy": {
+    "allowedModels": [],
+    "hasAllowedModelsConfig": false
+  },
+  "usesLegacyBeforeAgentStart": false,
+  "compatibility": [],
+  "install": {
+    "source": "path",
+    "sourcePath": "/mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw",
+    "installPath": "/tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway",
+    "version": "1.0.2",
+    "installedAt": "2026-10-15T06:30:46.606Z"
+  }
+}

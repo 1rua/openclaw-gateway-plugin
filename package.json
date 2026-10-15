@@ -1,6 +1,6 @@
 {
   "name": "@open-android-intelligence/openclaw",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Open Android Intelligence Gateway plugin for OpenClaw",
   "license": "MIT",
   "type": "module",
@@ -23,7 +23,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node tools/copy-runtime-contract.mjs",
     "contract:generate": "python3 tools/generate-contract-snapshot.py",
     "contract:check": "python3 tools/check-contract-snapshot.py",
     "plugin:install-smoke": "npm run build && openclaw plugins install ./ --force",
@@ -45,8 +45,12 @@
     "openclaw": "2026.7.1-2"
   },
   "openclaw": {
-    "extensions": ["./adapter.ts"],
-    "runtimeExtensions": ["./runtime/adapter.js"],
+    "extensions": [
+      "./adapter.ts"
+    ],
+    "runtimeExtensions": [
+      "./runtime/adapter.js"
+    ],
     "compat": {
       "pluginApi": "2026.7.1",
       "minGatewayVersion": "2026.7.1"

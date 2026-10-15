@@ -1,0 +1,213 @@
+{
+  "historicalRecordSource": "自身会话第 63 行保存的冻结前原始 JSON，仅用于来源比对，不代表新源码通过测试",
+  "lostCommit": "869bf034240ceff0640377c6bf5cc792c625a3af",
+  "exactLostCommitRecovered": false,
+  "matches": 17,
+  "compared": 34,
+  "files": [
+    {
+      "path": "gateway-contract/core-dispatched-schemas.json",
+      "historicalSha256": "6bd42021e38f339e8df7bea70af0fd902574021c0b16129d7b5f09b6fd9fb29b",
+      "recoveredSha256": "6bd42021e38f339e8df7bea70af0fd902574021c0b16129d7b5f09b6fd9fb29b",
+      "matches": true
+    },
+    {
+      "path": "gateway-contract/schemas/event.schema.json",
+      "historicalSha256": "b80e4f4ff275563eaeaf064744ec4c6a7c5ade1cb9b9d10caece77a320bad094",
+      "recoveredSha256": "b80e4f4ff275563eaeaf064744ec4c6a7c5ade1cb9b9d10caece77a320bad094",
+      "matches": true
+    },
+    {
+      "path": "gateway-contract/vectors/dispatched-schema-fixtures.json",
+      "historicalSha256": "3c087da32521571e805f8231133dfed6e63fe50cabbc913c413ba97a5efdef35",
+      "recoveredSha256": "3c087da32521571e805f8231133dfed6e63fe50cabbc913c413ba97a5efdef35",
+      "matches": true
+    },
+    {
+      "path": "gateway-contract/vectors/sse-events.json",
+      "historicalSha256": "233856d41ebbae544d229e0e1a5cf83b5ac14e77b9d3beda54e22a9c10948ea0",
+      "recoveredSha256": "233856d41ebbae544d229e0e1a5cf83b5ac14e77b9d3beda54e22a9c10948ea0",
+      "matches": true
+    },
+    {
+      "path": "package.json",
+      "historicalSha256": "f0fae4d1284683fe5321b20830b14c7ff37b0437807f21b24259ab4507bdc9ed",
+      "recoveredSha256": "0e4aaf5ca8e6ad675c4e661ffa709066abd5f7a3799c2309e425c47c980c939f",
+      "matches": false
+    },
+    {
+      "path": "plugin-manifest.json",
+      "historicalSha256": "a893b591517fa9124c9caefcf3b3ecd79c358b6b1d1f1e4336843d064b4c253a",
+      "recoveredSha256": "a893b591517fa9124c9caefcf3b3ecd79c358b6b1d1f1e4336843d064b4c253a",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/core-dispatched-schemas.json",
+      "historicalSha256": "6bd42021e38f339e8df7bea70af0fd902574021c0b16129d7b5f09b6fd9fb29b",
+      "recoveredSha256": "6bd42021e38f339e8df7bea70af0fd902574021c0b16129d7b5f09b6fd9fb29b",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/attachment.schema.json",
+      "historicalSha256": "0e6b26cc048d295731b94a7105a5cf2142670095b7f8c1f6ede52355c6997274",
+      "recoveredSha256": "0e6b26cc048d295731b94a7105a5cf2142670095b7f8c1f6ede52355c6997274",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/command-catalog.schema.json",
+      "historicalSha256": "d899d116048ef8f6cad083c9a65ff594e34ea206d236dba5598f4265208d0223",
+      "recoveredSha256": "d899d116048ef8f6cad083c9a65ff594e34ea206d236dba5598f4265208d0223",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/conversation-snapshot.schema.json",
+      "historicalSha256": "be02f072ad1576d091a665901c482cbf5b2450206e7dd05a498bee2175a77adc",
+      "recoveredSha256": "be02f072ad1576d091a665901c482cbf5b2450206e7dd05a498bee2175a77adc",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/conversation.schema.json",
+      "historicalSha256": "64f499abcf33a347d950ea6412c14d62e7ac88bd46244108a183ef6af972450e",
+      "recoveredSha256": "64f499abcf33a347d950ea6412c14d62e7ac88bd46244108a183ef6af972450e",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/device-request.schema.json",
+      "historicalSha256": "dd815703a5c64be5b44048e691495763145a4c3292fa1e7f4233f8299861db64",
+      "recoveredSha256": "dd815703a5c64be5b44048e691495763145a4c3292fa1e7f4233f8299861db64",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/envelope.schema.json",
+      "historicalSha256": "a71b3ca92479a97b810c2c3932156ecbed837e464eb455f4e61f0fc4690cb876",
+      "recoveredSha256": "a71b3ca92479a97b810c2c3932156ecbed837e464eb455f4e61f0fc4690cb876",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/event.schema.json",
+      "historicalSha256": "b80e4f4ff275563eaeaf064744ec4c6a7c5ade1cb9b9d10caece77a320bad094",
+      "recoveredSha256": "b80e4f4ff275563eaeaf064744ec4c6a7c5ade1cb9b9d10caece77a320bad094",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/negotiate.schema.json",
+      "historicalSha256": "6eb50eb6fe6efb90ef6d1e7e99e59322f97a74edb6442bce5abcd434b8136aec",
+      "recoveredSha256": "6eb50eb6fe6efb90ef6d1e7e99e59322f97a74edb6442bce5abcd434b8136aec",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/session.schema.json",
+      "historicalSha256": "9deb20b4efe6c03ad65787410a75b5a9f3435d07d89ca4bb6caca21dfede5667",
+      "recoveredSha256": "9deb20b4efe6c03ad65787410a75b5a9f3435d07d89ca4bb6caca21dfede5667",
+      "matches": true
+    },
+    {
+      "path": "runtime/gateway-contract/schemas/v1-bootstrap-export.schema.json",
+      "historicalSha256": "eac1455effd5b1fea53bfff0524f7de75f776399d6796c70ddb2e8d4535f5ec3",
+      "recoveredSha256": "eac1455effd5b1fea53bfff0524f7de75f776399d6796c70ddb2e8d4535f5ec3",
+      "matches": true
+    },
+    {
+      "path": "runtime/src/core/account-store.js",
+      "historicalSha256": "4ecf0f06682d7a44aa6e22e0d00c6cdac95518c916eaa54194e42932416c548c",
+      "recoveredSha256": "d43c1a34c223a34fa60d3f5586f9a5fb41f251668902cafa267e8f29307d3119",
+      "matches": false
+    },
+    {
+      "path": "runtime/src/core/conversation-port.js",
+      "historicalSha256": "8bd77618ee53341a4722961971634232360c956a14f2fa661ae931b3aa4c6a87",
+      "recoveredSha256": "a9147b06a2a1f15c7f7261528f27ee96398117dce436f46b772f182ee19e4470",
+      "matches": false
+    },
+    {
+      "path": "runtime/src/core/gateway-core.js",
+      "historicalSha256": "2e221eefa18178234a765d3f49e8c5355ffcef58ef1f9eb0cb54a17d8d039148",
+      "recoveredSha256": "21822189c745cf11b492bfbac24e031d579d6540b2e145a247b64d3429e0c0c1",
+      "matches": false
+    },
+    {
+      "path": "runtime/src/core/history-media.js",
+      "historicalSha256": "643e755cf77b72656e0133d9edf98b2d545a982363db7cac19fa48ec34a93726",
+      "recoveredSha256": "98b9abcd7bfc01be8939a03924be86c7e2e4ddfbf5ef007d71bf8eeb192c93d2",
+      "matches": false
+    },
+    {
+      "path": "runtime/src/host/inbound-dispatch.js",
+      "historicalSha256": "54bd9bc84f3becea6959bab5689da0c38431ef1586a5cda8610d63627c0d46d2",
+      "recoveredSha256": "a90a81bf5a6f9df56825d8183e1c6daa6bfe89a6e04c64580d21532a0649a2b1",
+      "matches": false
+    },
+    {
+      "path": "runtime/src/host/native-history.js",
+      "historicalSha256": "9cd517542666ef9e10b93c3f738eeaa2957da6ecebc59498e5d7fee5c8b3c551",
+      "recoveredSha256": "2fbb615935c936437ac74c47d9fa71fe3744f51a309bbca4c6bb7ce7742e1e78",
+      "matches": false
+    },
+    {
+      "path": "runtime/src/http/routes.js",
+      "historicalSha256": "07a4460499090bcd37aeefaf13718fbf2094de5e5b1179d458c151fd73d5c795",
+      "recoveredSha256": "c3f5545e10fec513a5bf286159e9dcc0afae07365755545cc5c6ec1c8f073604",
+      "matches": false
+    },
+    {
+      "path": "src/core/account-store.ts",
+      "historicalSha256": "2f36182f297fdd511686e474100ed113ba714315d758e27c00de783906c84858",
+      "recoveredSha256": "376a246ac8445f66fc6a9c436794add1d795f2ccb7a109676e02c040935ba5cb",
+      "matches": false
+    },
+    {
+      "path": "src/core/conversation-port.ts",
+      "historicalSha256": "e95bd2e4b9814d9eaa2a8e124d183e268d23a4eb9ec74e829dddb546f69cfd63",
+      "recoveredSha256": "b71ee14aa2fa64514ad59435dca2f278faa5fa032417c4f667d29f39e4f49f6b",
+      "matches": false
+    },
+    {
+      "path": "src/core/gateway-core.ts",
+      "historicalSha256": "758effd0687ff06ca877525f5ccf4c02aa27924d3901e3448b1774785ec23c86",
+      "recoveredSha256": "ba76a146df51145f2a4f47750000cd38c13394673cc10f8089d252c5a4dde19e",
+      "matches": false
+    },
+    {
+      "path": "src/core/history-media.ts",
+      "historicalSha256": "0182d9cc1d8ccf973b2ee3ac215e3398b4a9918ec9aca5fac34ff27a428e6f88",
+      "recoveredSha256": "99e12344b7f4301bc466895652ac3ff50080459cafcf8b2922a10eeaaa22363e",
+      "matches": false
+    },
+    {
+      "path": "src/host/inbound-dispatch.ts",
+      "historicalSha256": "6c6e24376964b1b7e26199c15cf903f91c5cf26dae132df3e2045f4b8484b63a",
+      "recoveredSha256": "2a0e83b0a47018afad507d28a7fe528dd7df3e209cbc6fa8b40fa8dd3c7c2b96",
+      "matches": false
+    },
+    {
+      "path": "src/host/native-history.ts",
+      "historicalSha256": "4331bb1177de0b22d273f58d5504caa002ca5237a64859dbce20907ec172508a",
+      "recoveredSha256": "bbe8bca48d8e5d487f7eae57e3d03d9340b7219fb294ae5a28bb310d228781d6",
+      "matches": false
+    },
+    {
+      "path": "src/http/routes.ts",
+      "historicalSha256": "b84ee71333faf5883b2e56cc5c9528b71ae11ebc368f4bad80ada110a06049d4",
+      "recoveredSha256": "89e0640083034c39eb5922248ba985a5677bab3ae85d512cb64a12ae68304099",
+      "matches": false
+    },
+    {
+      "path": "test/conversation-workflow.test.ts",
+      "historicalSha256": "2d66a3504b907e7308d79a738cbbbb86aba8a79cca22d96f98dcd4e8b7b70428",
+      "recoveredSha256": "20951b85af0602a093d2d2c4f68b8827bf51bf97ba5205ac184509672171eaac",
+      "matches": false
+    },
+    {
+      "path": "test/history-media-stream.test.ts",
+      "historicalSha256": "4dc1f0a441117898d82c39d105f7f4c680a61398add52a8ee4b7e03d12617488",
+      "recoveredSha256": "e49658272b27da98ba6ecaa0abb9581130a7b565feb21cb8c13e202b8a5df50f",
+      "matches": false
+    },
+    {
+      "path": "tools/copy-runtime-contract.mjs",
+      "historicalSha256": "dbd67fa000bb53f3933a5c9a771096260fe79503cad22d3b643e58f5b06bd0ba",
+      "recoveredSha256": "dbd67fa000bb53f3933a5c9a771096260fe79503cad22d3b643e58f5b06bd0ba",
+      "matches": true
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+
+> @open-android-intelligence/openclaw@1.0.2 test
+> vitest run
+
+
+ RUN  v4.1.11 /mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw
+
+
+ Test Files  32 passed (32)
+      Tests  146 passed (146)
+   Start at  09:12:58
+   Duration  6.19s (transform 3.17s, setup 0ms, import 23.69s, tests 29.22s, environment 4ms)
+

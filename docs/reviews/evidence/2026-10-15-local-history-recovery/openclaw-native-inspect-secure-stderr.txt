@@ -1,0 +1,1 @@
+Plugin not found: open-android-intelligence-gateway. Run `openclaw plugins list` to see installed plugins, or `openclaw plugins search open-android-intelligence-gateway` to look for installable plugins.

@@ -826,13 +826,14 @@ export const createGatewayCore = (options = {}) => {
             // Read the current file, not a handle to a deleted/replaced account.
             database = new DatabaseSync(accountPaths(resolveRoot(), context.accountId).database, { readOnly: true });
             const row = database.prepare(`
-          SELECT s.status, s.expires_at, k.pairing_generation
+          SELECT s.status, s.expires_at, k.pairing_generation, k.grant_revision
           FROM access_sessions s JOIN device_keys k ON k.device_id = s.device_id
           WHERE s.session_id = ? AND s.device_id = ?
         `).get(context.sessionId, context.deviceId);
             return row !== undefined && row.status === "active"
                 && Date.parse(row.expires_at) > now.getTime()
-                && Number(row.pairing_generation) === context.pairingGeneration;
+                && Number(row.pairing_generation) === context.pairingGeneration
+                && Number(row.grant_revision) === context.grantRevision;
         }
         catch {
             return false;
@@ -886,6 +887,13 @@ export const createGatewayCore = (options = {}) => {
             const paths = accountPaths(resolveRoot(), accountId);
             if (!existsSync(paths.root))
                 return false;
+            const store = openAccountStore(paths, { accountId, masterKey: attachmentMasterKey.bytes, reference: attachmentMasterKey.reference });
+            try {
+                new HistoryMedia(store, accountId).retireAccount();
+            }
+            finally {
+                store.close();
+            }
             rmSync(paths.root, { recursive: true, force: true });
             return true;
         },
@@ -961,18 +969,58 @@ export const createGatewayCore = (options = {}) => {
                     }
                     const historyMedia = request.target.split("?")[0].match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/attachments\/([^/]+)\/(metadata|cache-grant|content)$/);
                     if (historyMedia) {
-                        account.conversations.get(historyMedia[1]);
+                        const query = new URL(request.target, "https://gateway.invalid").searchParams;
+                        const formats = query.getAll("format");
+                        const endpoint = historyMedia[3];
+                        const allowed = endpoint === "content" ? new Set(["format", "grantId"]) : new Set(["format"]);
+                        if ([...query.keys()].some(key => !allowed.has(key)) || formats.length > 1 || formats.length === 1 && formats[0] !== "stream-v1")
+                            throw new Error("SCHEMA_INVALID");
+                        const format = formats.length === 1 ? "stream-v1" : undefined;
+                        const conversationId = historyMedia[1], attachmentId = historyMedia[2];
+                        account.conversations.get(conversationId);
+                        await account.conversations.listMessages(conversationId);
                         const media = new HistoryMedia(account.store, account.accountId);
-                        if (request.method === "GET" && historyMedia[3] === "metadata")
-                            return success(request, { metadata: media.metadata(historyMedia[1], historyMedia[2]) });
+                        if (request.method === "GET" && endpoint === "metadata")
+                            return success(request, { metadata: media.metadata(conversationId, attachmentId, format) });
                         if (request.method === "POST" && historyMedia[3] === "cache-grant") {
                             if (Object.keys(bodyRecord(request.body)).length !== 0)
                                 throw new Error("SCHEMA_INVALID");
-                            return runIdempotent(account, request, () => success(request, media.grant(historyMedia[1], historyMedia[2], request.context, request.now)));
+                            return runIdempotent(account, request, () => success(request, media.grant(conversationId, attachmentId, request.context, request.now, format)));
                         }
                         if (request.method === "GET" && historyMedia[3] === "content") {
-                            const grant = new URL(request.target, "https://gateway.invalid").searchParams.get("grantId") ?? "";
-                            const content = media.content(historyMedia[1], historyMedia[2], grant, request.context, request.now);
+                            const grants = query.getAll("grantId");
+                            if (grants.length !== 1 || !grants[0])
+                                throw new Error("SCHEMA_INVALID");
+                            const grant = grants[0];
+                            if (format === "stream-v1") {
+                                const context = request.context;
+                                let historyStamp = account.conversations.historySourceStamp(conversationId);
+                                const stream = media.contentStream(conversationId, attachmentId, grant, context, request.now, async () => {
+                                    if (!isEventSessionActive(context))
+                                        return false;
+                                    const current = await openAccount(context.accountId);
+                                    try {
+                                        const stamp = current.conversations.historySourceStamp(conversationId);
+                                        if (stamp !== historyStamp) {
+                                            if (historyStamp !== "" && stamp === "")
+                                                return false;
+                                            await current.conversations.listMessages(conversationId);
+                                            historyStamp = stamp;
+                                        }
+                                        return new HistoryMedia(current.store, current.accountId).isActive(conversationId, attachmentId);
+                                    }
+                                    catch {
+                                        return false;
+                                    }
+                                    finally {
+                                        current.close();
+                                    }
+                                });
+                                const response = { ...success(request, {}) };
+                                Object.defineProperty(response, "bodyStream", { value: stream, enumerable: false });
+                                return Object.freeze(response);
+                            }
+                            const content = media.content(conversationId, attachmentId, grant, request.context, request.now);
                             return success(request, { contentBase64: Buffer.from(content.body).toString("base64"), mediaType: content.mediaType });
                         }
                         throw new Error("SCHEMA_INVALID");

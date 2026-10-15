@@ -1,0 +1,4 @@
+
+# 原始验证日志保留工具输出的尾部空行，源码仍使用默认空白检查。
+docs/reviews/evidence/2026-10-14-local-history/*.txt whitespace=-blank-at-eof
+docs/reviews/evidence/2026-10-15-local-history-recovery/*.txt whitespace=-blank-at-eof

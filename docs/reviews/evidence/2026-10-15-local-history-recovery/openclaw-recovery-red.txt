@@ -1,0 +1,43 @@
+
+ RUN  v4.1.11 /mnt/data/projects/open-android-intelligence/.worktrees/local-history-openclaw
+
+ ❯ test/history-media-stream.test.ts (5 tests | 5 failed) 76ms
+   × 大原件在交付前持久采用，临时源退休后可流式读取并按原身份重试 46ms
+   × 历史端点拒绝非闭集查询参数：format= 10ms
+   × 历史端点拒绝非闭集查询参数：format=stream-v2 6ms
+   × 历史端点拒绝非闭集查询参数：format=stream-v1&format=stream-v1 7ms
+   × 历史端点拒绝非闭集查询参数：extra=value&format=stream-v1 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/history-media-stream.test.ts > 大原件在交付前持久采用，临时源退休后可流式读取并按原身份重试
+Error: ATTACHMENT_TOO_LARGE
+ ❯ HistoryMedia.register src/core/history-media.ts:18:81
+
+ ❯ test/history-media-stream.test.ts:26:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/history-media-stream.test.ts > 历史端点拒绝非闭集查询参数：format=
+ FAIL  test/history-media-stream.test.ts > 历史端点拒绝非闭集查询参数：format=stream-v2
+ FAIL  test/history-media-stream.test.ts > 历史端点拒绝非闭集查询参数：format=stream-v1&format=stream-v1
+ FAIL  test/history-media-stream.test.ts > 历史端点拒绝非闭集查询参数：extra=value&format=stream-v1
+AssertionError: expected undefined to be 'SCHEMA_INVALID' // Object.is equality
+
+- Expected:
+"SCHEMA_INVALID"
+
++ Received:
+undefined
+
+ ❯ test/history-media-stream.test.ts:51:34
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  09:02:04
+   Duration  1.63s (transform 567ms, setup 0ms, import 1.15s, tests 76ms, environment 0ms)
+

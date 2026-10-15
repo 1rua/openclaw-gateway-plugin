@@ -5,7 +5,11 @@
     "event": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["correlationId", "occurredAt", "payload"],
+      "required": [
+        "correlationId",
+        "occurredAt",
+        "payload"
+      ],
       "properties": {
         "correlationId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
@@ -42,7 +46,9 @@
       "$comment": "Normative copy for eventType 'session.revoked' (contract §9). Notification only.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["sessionId"],
+      "required": [
+        "sessionId"
+      ],
       "properties": {
         "sessionId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
@@ -56,26 +62,40 @@
       "$comment": "Normative copy for eventType 'pairing.grant.changed' (contract §9/§11). Notification only: the event must never widen the Android-local authoritative grant record; decisions still travel the request path and stale revisions still return GRANT_STALE.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["grantRevision"],
+      "required": [
+        "grantRevision"
+      ],
       "properties": {
-        "grantRevision": { "type": "integer", "minimum": 0 },
+        "grantRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
         "deviceId": {
           "$comment": "All newly emitted notifications identify the affected device. Optional only for replay of persisted pre-upgrade events.",
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
-        "pluginId": { "type": "string", "minLength": 1 },
+        "pluginId": {
+          "type": "string",
+          "minLength": 1
+        },
         "authorKeyId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/prefixedSha256"
         },
-        "capabilityId": { "type": "string", "minLength": 1 },
-        "capabilityVersion": { "type": "string", "minLength": 1 },
+        "capabilityId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilityVersion": {
+          "type": "string",
+          "minLength": 1
+        },
         "grantDigest": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/prefixedSha256"
         }
       }
     },
     "conversationMessagePayload": {
-      "$comment": "Shared shape for eventType 'conversation.message.delta' and 'conversation.message.completed' (contract §9). text carries the accumulated message body (upsert semantics), not a fragment. parts is a closed list of text parts; an empty text is legal.",
+      "$comment": "消息正文为累积 upsert；parts 为封闭的文本和附件联合，纯附件的空正文合法。附件字节不进入事件。",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -94,22 +114,75 @@
         "messageId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
-        "sender": { "type": "string", "minLength": 1 },
+        "sender": {
+          "type": "string",
+          "minLength": 1
+        },
         "parts": {
           "type": "array",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["type", "text"],
-            "properties": {
-              "type": { "const": "text" },
-              "text": { "type": "string" }
-            }
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "text"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "attachmentId"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "attachment"
+                  },
+                  "attachmentId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "mediaType": {
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                }
+              }
+            ]
           }
         },
-        "text": { "type": "string" },
-        "timestamp": { "type": "integer", "minimum": 0 },
-        "revision": { "type": "integer", "minimum": 0 }
+        "text": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "messageDeltaPayload": {
@@ -136,27 +209,76 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["conversationId", "messageId", "clientMessageId", "status", "revision", "errorCode"],
+          "required": [
+            "conversationId",
+            "messageId",
+            "clientMessageId",
+            "status",
+            "revision",
+            "errorCode"
+          ],
           "properties": {
-            "conversationId": { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId" },
-            "messageId": { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId" },
-            "clientMessageId": { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId" },
-            "status": { "const": "failed" },
-            "revision": { "type": "integer", "minimum": 0 },
-            "errorCode": { "enum": ["AGENT_UNAVAILABLE", "ATTACHMENT_READ_FAILED", "AGENT_MEDIA_REJECTED", "MODEL_REQUEST_REJECTED"] }
+            "conversationId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "messageId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "clientMessageId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "status": {
+              "const": "failed"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "errorCode": {
+              "enum": [
+                "AGENT_UNAVAILABLE",
+                "ATTACHMENT_READ_FAILED",
+                "AGENT_MEDIA_REJECTED",
+                "MODEL_REQUEST_REJECTED"
+              ]
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["conversationId", "messageId", "clientMessageId", "status", "revision", "errorCode"],
+          "required": [
+            "conversationId",
+            "messageId",
+            "clientMessageId",
+            "status",
+            "revision",
+            "errorCode"
+          ],
           "properties": {
-            "conversationId": { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId" },
-            "messageId": { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId" },
-            "clientMessageId": { "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId" },
-            "status": { "enum": ["queued", "delivered", "completed"] },
-            "revision": { "type": "integer", "minimum": 0 },
-            "errorCode": { "type": "null" }
+            "conversationId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "messageId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "clientMessageId": {
+              "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "delivered",
+                "completed"
+              ]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "errorCode": {
+              "type": "null"
+            }
           }
         }
       ]
@@ -165,20 +287,32 @@
       "$comment": "Normative copy for eventType 'conversation.title.updated'. newTitle mirrors title; an empty title is legal (title clearing).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["conversationId", "title", "newTitle"],
+      "required": [
+        "conversationId",
+        "title",
+        "newTitle"
+      ],
       "properties": {
         "conversationId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
-        "title": { "type": "string" },
-        "newTitle": { "type": "string" }
+        "title": {
+          "type": "string"
+        },
+        "newTitle": {
+          "type": "string"
+        }
       }
     },
     "deviceRequestedEventPayload": {
       "$comment": "Normative copy for eventType 'device.requested' (contract §9). Both hosts emit this event, but they currently disagree on width: Hermes mirrors the full request (device-request.schema.json#/$defs/request) while OpenClaw emits { requestId, risk, grantRevision }. Required is therefore the intersection; the remaining request fields are optional. parameters stays an open object because capability sub-schemas dispatch by id/version.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["requestId", "risk", "grantRevision"],
+      "required": [
+        "requestId",
+        "risk",
+        "grantRevision"
+      ],
       "properties": {
         "requestId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
@@ -186,18 +320,33 @@
         "capability": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["id", "version"],
+          "required": [
+            "id",
+            "version"
+          ],
           "properties": {
-            "id": { "type": "string", "minLength": 1 },
-            "version": { "type": "string", "minLength": 1 }
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "provider": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["pluginId", "authorKeyId"],
+          "required": [
+            "pluginId",
+            "authorKeyId"
+          ],
           "properties": {
-            "pluginId": { "type": "string", "minLength": 1 },
+            "pluginId": {
+              "type": "string",
+              "minLength": 1
+            },
             "authorKeyId": {
               "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/prefixedSha256"
             }
@@ -208,23 +357,35 @@
           "type": "object"
         },
         "risk": {
-          "enum": ["read", "sync", "write", "high-privilege-ephemeral"]
+          "enum": [
+            "read",
+            "sync",
+            "write",
+            "high-privilege-ephemeral"
+          ]
         },
-        "grantRevision": { "type": "integer", "minimum": 0 },
+        "grantRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
         "createdAt": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/utcMillis"
         },
         "expiresAt": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/utcMillis"
         },
-        "requiresForegroundConfirmation": { "type": "boolean" }
+        "requiresForegroundConfirmation": {
+          "type": "boolean"
+        }
       }
     },
     "deviceRequestCancelRequestedPayload": {
       "$comment": "Normative copy for eventType 'device.request.cancel.requested' (contract §9).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["requestId"],
+      "required": [
+        "requestId"
+      ],
       "properties": {
         "requestId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
@@ -235,7 +396,9 @@
       "$comment": "Normative copy for eventType 'attachment.acknowledged' (contract §9).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["attachmentId"],
+      "required": [
+        "attachmentId"
+      ],
       "properties": {
         "attachmentId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"

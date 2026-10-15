@@ -1,0 +1,8 @@
+Plugin manifest id "open-android-intelligence-gateway" differs from npm package name "@open-android-intelligence/openclaw"; using manifest id as the config key.
+Installing to /tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway…
+Linked peerDependency "openclaw" -> /tmp/oai-openclaw-permissions-ye9aq8q0/node_modules/openclaw
+Config warnings:
+- plugins.entries.open-android-intelligence-gateway: plugin open-android-intelligence-gateway: blocked plugin candidate: world-writable path (/tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway/runtime/adapter.js, mode=777)
+- plugins.entries.open-android-intelligence-gateway: plugin present but blocked: open-android-intelligence-gateway (see preceding plugin warning; source: /tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway/runtime/adapter.js; fix the blocked plugin path instead of removing config)
+Installed plugin: open-android-intelligence-gateway
+Restart the gateway to load plugins.

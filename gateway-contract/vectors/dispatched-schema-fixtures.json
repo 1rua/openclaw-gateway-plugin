@@ -360,7 +360,7 @@
       "key": {
         "kind": "event",
         "eventType": "conversation.message.delta",
-        "schemaSha256": "sha256:0e4302bc076d9c2f1282f5abdc84b10b42af64ab402cc3c9b1870451135a453f"
+        "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
       },
       "schema": {
         "type": "object",
@@ -394,20 +394,55 @@
           "parts": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "type",
-                "text"
-              ],
-              "properties": {
-                "type": {
-                  "const": "text"
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "text"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
                 },
-                "text": {
-                  "type": "string"
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "attachmentId"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "attachment"
+                    },
+                    "attachmentId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mediaType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  }
                 }
-              }
+              ]
             }
           },
           "text": {
@@ -429,7 +464,7 @@
       "key": {
         "kind": "event",
         "eventType": "conversation.message.completed",
-        "schemaSha256": "sha256:0e4302bc076d9c2f1282f5abdc84b10b42af64ab402cc3c9b1870451135a453f"
+        "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
       },
       "schema": {
         "type": "object",
@@ -463,20 +498,55 @@
           "parts": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "type",
-                "text"
-              ],
-              "properties": {
-                "type": {
-                  "const": "text"
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "text"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
                 },
-                "text": {
-                  "type": "string"
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "attachmentId"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "attachment"
+                    },
+                    "attachmentId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mediaType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  }
                 }
-              }
+              ]
             }
           },
           "text": {
@@ -905,14 +975,14 @@
             "kind": "event",
             "eventType": "conversation.message.delta"
           },
-          "schemaSha256": "sha256:0e4302bc076d9c2f1282f5abdc84b10b42af64ab402cc3c9b1870451135a453f"
+          "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
         },
         {
           "key": {
             "kind": "event",
             "eventType": "conversation.message.completed"
           },
-          "schemaSha256": "sha256:0e4302bc076d9c2f1282f5abdc84b10b42af64ab402cc3c9b1870451135a453f"
+          "schemaSha256": "sha256:57b3dc6bfe46ebab8a97da7dc615a2ec7d5c3070091e026a3b41ab6f464b2c42"
         },
         {
           "key": {

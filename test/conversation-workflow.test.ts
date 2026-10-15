@@ -77,6 +77,10 @@ it("reads only the scoped host original, consumes grants once and preserves unav
     const media=new HistoryMedia(account.store,ctx.accountId);const ref=media.register(cid,"msg_media",path,"image/png",[mediaRoot]);const id=String(ref.attachmentId);
     const grant=media.grant(cid,id,ctx);expect(()=>media.content(cid,id,String(grant.grantId),{...ctx,deviceId:"dev_other"})).toThrow("AUTHENTICATION_FAILED");
     expect(Buffer.from(media.content(cid,id,String(grant.grantId),ctx).body).toString()).toBe("real-original");expect(()=>media.content(cid,id,String(grant.grantId),ctx)).toThrow("AUTHENTICATION_FAILED");
-    writeFileSync(path,Buffer.from("changed"));expect(media.metadata(cid,id)).toMatchObject({remoteAvailable:false,status:"REMOTE_UNAVAILABLE",filename:"image.png"});
+    writeFileSync(path,Buffer.from("changed"));
+    expect(media.metadata(cid,id)).toMatchObject({remoteAvailable:true,filename:"image.png"});
+    const saved=account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`history-media:${id}`) as {value:string};
+    const original=account.store.openJson(saved.value,`history-media:${id}`) as {path:string};
+    writeFileSync(original.path,Buffer.from("changed"));expect(media.metadata(cid,id)).toMatchObject({remoteAvailable:false,status:"REMOTE_UNAVAILABLE",filename:"image.png"});
   }finally{account.close();}
 });

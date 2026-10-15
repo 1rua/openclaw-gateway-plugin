@@ -1,0 +1,5 @@
+
+> @open-android-intelligence/openclaw@1.0.2 build
+> tsc -p tsconfig.build.json && node tools/copy-runtime-contract.mjs
+
+运行产物与发布契约的原始字节摘要一致：sha256:63223ba149355032800eeae8a9f0827d542bbde7ca9e4eeb19f93df30e7febde

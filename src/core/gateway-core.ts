@@ -18,7 +18,7 @@ import { ConversationPort } from "./conversation-port.js";
 import { CredentialStore } from "./credential-store.js";
 import { DeviceRequestStore } from "./device-request-store.js";
 import { EventStore } from "./event-store.js";
-import { HistoryMedia } from "./history-media.js";
+import { HistoryMedia, type HistoryMediaFormat, type HistoryMediaStream } from "./history-media.js";
 import { PairingInvites } from "./pairing-invites.js";
 import { PairingService } from "./pairing-service.js";
 import { SessionService } from "./session-service.js";
@@ -100,6 +100,8 @@ export type VerifiedGatewayRequest = Readonly<{
 }>;
 
 export type GatewayResponse = Readonly<{
+  /** 仅供原生 HTTP 层消费，不参与 JSON 序列化或幂等结果保存。 */
+  bodyStream?: HistoryMediaStream;
   requestId: string;
   correlationId: string;
   protocol: "2.1";
@@ -929,13 +931,14 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
         // Read the current file, not a handle to a deleted/replaced account.
         database = new DatabaseSync(accountPaths(resolveRoot(), context.accountId).database, { readOnly: true });
         const row = database.prepare(`
-          SELECT s.status, s.expires_at, k.pairing_generation
+          SELECT s.status, s.expires_at, k.pairing_generation, k.grant_revision
           FROM access_sessions s JOIN device_keys k ON k.device_id = s.device_id
           WHERE s.session_id = ? AND s.device_id = ?
-        `).get(context.sessionId, context.deviceId) as { status: string; expires_at: string; pairing_generation: number } | undefined;
+        `).get(context.sessionId, context.deviceId) as { status: string; expires_at: string; pairing_generation: number; grant_revision: number } | undefined;
         return row !== undefined && row.status === "active"
           && Date.parse(row.expires_at) > now.getTime()
-          && Number(row.pairing_generation) === context.pairingGeneration;
+          && Number(row.pairing_generation) === context.pairingGeneration
+          && Number(row.grant_revision) === context.grantRevision;
       } catch { return false; }
       finally { database?.close(); }
     };
@@ -977,6 +980,8 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       // confirmed attachment bytes, credentials and the account audit trail.
       const paths = accountPaths(resolveRoot(), accountId);
       if (!existsSync(paths.root)) return false;
+      const store = openAccountStore(paths, { accountId, masterKey: attachmentMasterKey.bytes, reference: attachmentMasterKey.reference });
+      try { new HistoryMedia(store, accountId).retireAccount(); } finally { store.close(); }
       rmSync(paths.root, { recursive: true, force: true });
       return true;
     },
@@ -1044,15 +1049,46 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
           }
           const historyMedia=request.target.split("?")[0]!.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/attachments\/([^/]+)\/(metadata|cache-grant|content)$/);
           if (historyMedia) {
-            account.conversations.get(historyMedia[1]!);const media=new HistoryMedia(account.store,account.accountId);
-            if (request.method==="GET" && historyMedia[3]==="metadata") return success(request,{metadata:media.metadata(historyMedia[1]!,historyMedia[2]!)});
+            const query = new URL(request.target, "https://gateway.invalid").searchParams;
+            const formats = query.getAll("format");
+            const endpoint = historyMedia[3]!;
+            const allowed = endpoint === "content" ? new Set(["format", "grantId"]) : new Set(["format"]);
+            if ([...query.keys()].some(key => !allowed.has(key)) || formats.length > 1 || formats.length === 1 && formats[0] !== "stream-v1") throw new Error("SCHEMA_INVALID");
+            const format: HistoryMediaFormat = formats.length === 1 ? "stream-v1" : undefined;
+            const conversationId = historyMedia[1]!, attachmentId = historyMedia[2]!;
+            account.conversations.get(conversationId);
+            await account.conversations.listMessages(conversationId);
+            const media = new HistoryMedia(account.store, account.accountId);
+            if (request.method==="GET" && endpoint==="metadata") return success(request,{metadata:media.metadata(conversationId, attachmentId, format)});
             if (request.method==="POST" && historyMedia[3]==="cache-grant") {
               if (Object.keys(bodyRecord(request.body)).length!==0) throw new Error("SCHEMA_INVALID");
-              return runIdempotent(account,request,()=>success(request,media.grant(historyMedia[1]!,historyMedia[2]!,request.context!,request.now)));
+              return runIdempotent(account,request,()=>success(request,media.grant(conversationId,attachmentId,request.context!,request.now,format)));
             }
             if (request.method==="GET" && historyMedia[3]==="content") {
-              const grant=new URL(request.target,"https://gateway.invalid").searchParams.get("grantId") ?? "";
-              const content=media.content(historyMedia[1]!,historyMedia[2]!,grant,request.context!,request.now);
+              const grants = query.getAll("grantId");
+              if (grants.length !== 1 || !grants[0]) throw new Error("SCHEMA_INVALID");
+              const grant = grants[0];
+              if (format === "stream-v1") {
+                const context = request.context!;
+                let historyStamp = account.conversations.historySourceStamp(conversationId);
+                const stream = media.contentStream(conversationId, attachmentId, grant, context, request.now, async () => {
+                  if (!isEventSessionActive(context)) return false;
+                  const current = await openAccount(context.accountId);
+                  try {
+                    const stamp = current.conversations.historySourceStamp(conversationId);
+                    if (stamp !== historyStamp) {
+                      if (historyStamp !== "" && stamp === "") return false;
+                      await current.conversations.listMessages(conversationId);
+                      historyStamp = stamp;
+                    }
+                    return new HistoryMedia(current.store, current.accountId).isActive(conversationId, attachmentId);
+                  } catch { return false; } finally { current.close(); }
+                });
+                const response = { ...success(request, {}) };
+                Object.defineProperty(response, "bodyStream", { value: stream, enumerable: false });
+                return Object.freeze(response);
+              }
+              const content=media.content(conversationId,attachmentId,grant,request.context!,request.now);
               return success(request,{contentBase64:Buffer.from(content.body).toString("base64"),mediaType:content.mediaType});
             }
             throw new Error("SCHEMA_INVALID");

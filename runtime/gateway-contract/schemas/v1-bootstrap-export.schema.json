@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-android-intelligence.dev/schemas/gateway/v2/v1-bootstrap-export.schema.json",
+  "title": "Open Android Intelligence v1 to v2 bootstrap export",
+  "description": "v1 部署到 v2 的安全引导导出。只包含重新发现 Gateway 与插件所需的非秘密字段；任何凭据、队列、未确认操作、正文、附件、数据库文件或主密钥都不得出现。导入端必须重新配对并重新授权。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "gateways", "plugins"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "gateways": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gatewayProfile" }
+    },
+    "plugins": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pluginDiscoveryEntry" }
+    }
+  },
+  "$defs": {
+    "gatewayProfile": {
+      "title": "非秘密 Gateway 显示信息",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName", "baseUrl", "tlsSpkiSha256"],
+      "properties": {
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "baseUrl": {
+          "description": "仅允许 https 且不允许 userinfo、查询串或片段，防止凭据被夹带进地址。",
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 256,
+          "pattern": "^https://[A-Za-z0-9._~%-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%/-]*)?$"
+        },
+        "tlsSpkiSha256": { "$ref": "#/$defs/sha256Digest" }
+      }
+    },
+    "pluginDiscoveryEntry": {
+      "title": "插件发现条目",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "authorKeyId"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)+$"
+        },
+        "authorKeyId": { "$ref": "#/$defs/sha256Digest" }
+      }
+    },
+    "sha256Digest": {
+      "type": "string",
+      "minLength": 71,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "allRuntimeFilesMatch": true,
+  "runtimeFiles": 48,
+  "pluginVersion": "1.0.2",
+  "entry": "/tmp/oai-openclaw-permissions-ye9aq8q0/state/extensions/open-android-intelligence-gateway/runtime/adapter.js",
+  "sourceCore": "sha256:63223ba149355032800eeae8a9f0827d542bbde7ca9e4eeb19f93df30e7febde",
+  "runtimeCore": "sha256:63223ba149355032800eeae8a9f0827d542bbde7ca9e4eeb19f93df30e7febde",
+  "notes": "本次编译产物、再次构建产物和实际加载的安装副本逐文件一致"
+}
