@@ -24,10 +24,7 @@ export const nativeHistoryStamp = (binding) => {
     return JSON.stringify([binding, source, ...[stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].map(String)]);
 };
 /** The binding is produced exclusively by the verified SDK's session recorder. */
-export const readNativeHistory = async (binding) => {
-    const source = nativeTranscript(binding);
-    if (source === undefined)
-        return [];
+const readTranscript = async (source) => {
     const rows = [];
     const lines = createInterface({ input: createReadStream(source.file, { encoding: "utf8" }), crlfDelay: Infinity });
     for await (const line of lines) {
@@ -57,4 +54,50 @@ export const readNativeHistory = async (binding) => {
             ...(typeof message.platform_message_id === "string" ? { clientMessageId: message.platform_message_id } : {}), });
     }
     return rows;
+};
+export const readNativeHistory = async (binding) => {
+    const source = nativeTranscript(binding);
+    return source ? readTranscript(source) : [];
+};
+/** Cancellation snapshots contain native identities, never duplicated message bodies. */
+export const readNativeHistorySnapshot = async (binding) => {
+    let source;
+    try {
+        source = nativeTranscript(binding);
+    }
+    catch (error) {
+        if (error.code === "ENOENT")
+            return { messages: [] };
+        throw error;
+    }
+    if (!source)
+        return { messages: [] };
+    try {
+        return { sessionId: source.sessionId, messages: await readTranscript(source) };
+    }
+    catch (error) {
+        if (error.code === "ENOENT")
+            return { sessionId: source.sessionId, messages: [] };
+        throw error;
+    }
+};
+/** The SDK's synchronous onAgentRunStart hook runs after native session admission.
+ * Read identities only, so queued previous-run writes are included in the boundary. */
+export const nativeAssistantSnapshot = (binding) => {
+    let source = undefined;
+    try {
+        source = nativeTranscript(binding);
+        if (!source)
+            return { assistantIds: [] };
+        const assistantIds = readFileSync(source.file, "utf8").split("\n").filter(line => line.trim()).flatMap(line => {
+            const entry = JSON.parse(line);
+            return entry.type === "message" && typeof entry.id === "string" && entry.message?.role === "assistant" ? [`${source.sessionId}:${entry.id}`] : [];
+        });
+        return { sessionId: source.sessionId, assistantIds };
+    }
+    catch (error) {
+        if (error.code === "ENOENT")
+            return { sessionId: source?.sessionId, assistantIds: [] };
+        throw error;
+    }
 };

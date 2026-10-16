@@ -151,6 +151,11 @@ export class ConversationWorkflow {
             return "CANCELLED";
         if (["completed", "failed"].includes(generation.state))
             return "ALREADY_COMPLETED";
+        if (generation.state === "queued" || cancel) {
+            const requestKey = `generation-cancel-request:${generationId}`;
+            if (!this.get(requestKey))
+                this.put(requestKey, { correlationId: context.correlationId });
+        }
         if (generation.state === "queued") {
             this.settle(generation.messageIds[0], "cancelled");
             this.store.database.prepare("UPDATE messages SET dispatchable=0 WHERE message_id=?").run(generation.messageIds[0]);
@@ -177,7 +182,8 @@ export class ConversationWorkflow {
                 this.store.database.prepare("UPDATE messages SET body='',dispatchable=0,next_attempt_at=NULL WHERE message_id=?").run(mid);
             const eventKey = `generation-cancellation:${generation.generationId}`;
             if (!this.get(eventKey)) {
-                this.events.append({ eventType: "conversation.generation.cancelled", correlationId,
+                const request = this.get(`generation-cancel-request:${generation.generationId}`);
+                this.events.append({ eventType: "conversation.generation.cancelled", correlationId: request?.correlationId ?? correlationId,
                     payload: { conversationId: generation.conversationId, generationId: generation.generationId, outcome: "CANCELLED" }, now });
                 this.put(eventKey, true);
             }

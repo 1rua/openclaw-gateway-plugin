@@ -78,7 +78,7 @@ const startInboundWorker = (core, channelAccountId, runtime, cfg, abortSignal, l
     if (runtime)
         core.setHostSessionResolver?.(async (accountId, conversationId) => {
             const binding = await resolveGatewayHostSession(runtime, cfg, channelAccountId, accountId, conversationId);
-            return existsSync(binding.storePath) ? { storePath: binding.storePath, sessionKey: binding.sessionKey } : undefined;
+            return existsSync(binding.storePath) ? binding : undefined;
         });
     const run = async () => {
         while (!abortSignal.aborted) {
@@ -269,7 +269,7 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
                 const result = await nativeGateway.request("sessions.create", { key: binding.sessionKey, agentId: binding.agentId }, { timeoutMs: 8000 });
                 if (result.ok !== true || result.key !== binding.sessionKey || result.runStarted === true)
                     throw new Error("AGENT_UNAVAILABLE");
-                return { storePath: binding.storePath, sessionKey: binding.sessionKey };
+                return binding;
             });
     }
     if (typeof nativeGateway?.request === "function")
@@ -278,6 +278,10 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
             try {
                 const generation = account.conversations.workflow.get(`generation:${generationId}`);
                 if (generation?.state === "completed" || generation?.state === "failed")
+                    return "ALREADY_COMPLETED";
+                await account.conversations.beginHostCancellation(conversationId, generationId);
+                const current = account.conversations.workflow.get(`generation:${generationId}`);
+                if (current?.state === "completed" || current?.state === "failed")
                     return "ALREADY_COMPLETED";
                 const tracked = await abortTrackedTurn(accountId, generationId);
                 if (tracked)

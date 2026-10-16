@@ -1,7 +1,7 @@
 import { ConversationWorkflow } from "./conversation-workflow.js";
 import { HistoryMedia } from "./history-media.js";
 import { randomUUID, createHash } from "node:crypto";
-import { nativeHistoryStamp, readNativeHistory } from "../host/native-history.js";
+import { nativeHistoryStamp, readNativeHistory, readNativeHistorySnapshot, nativeAssistantSnapshot } from "../host/native-history.js";
 import { DEFAULT_ATTACHMENT_POLICY } from "./attachment-policy.js";
 export class ConversationPort {
     accountId;
@@ -17,6 +17,42 @@ export class ConversationPort {
         this.get(conversationId);
         this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)")
             .run(`host-session:${conversationId}`, JSON.stringify(binding));
+    }
+    nativeCancellations(conversationId) {
+        return this.store.database.prepare("SELECT key,value FROM account_metadata WHERE key LIKE ?").all(`native-cancellation:${conversationId}:%`)
+            .map(row => ({ key: row.key, boundary: JSON.parse(row.value) }))
+            .filter(({ boundary }) => boundary.conversationId === conversationId);
+    }
+    async beginHostCancellation(conversationId, generationId) {
+        const key = `native-cancellation:${conversationId}:${generationId}`;
+        if (this.workflow.get(key))
+            return;
+        const binding = this.workflow.get(`host-session:${conversationId}`);
+        if (!binding)
+            return;
+        const snapshot = await readNativeHistorySnapshot(binding);
+        if (!snapshot.sessionId)
+            return;
+        this.workflow.put(key, { conversationId, generationId, storePath: binding.storePath, sessionKey: binding.sessionKey,
+            sessionId: snapshot.sessionId, visibleAssistantIds: snapshot.messages.filter(row => row.sender === "assistant").map(row => row.nativeId), closed: false });
+    }
+    beginHostTurn(conversationId, generationId) {
+        const pending = this.nativeCancellations(conversationId).filter(({ boundary }) => !boundary.closed && boundary.generationId !== generationId
+            && this.workflow.get(`generation:${boundary.generationId}`)?.state === "cancelled");
+        if (!pending.length)
+            return;
+        const binding = this.workflow.get(`host-session:${conversationId}`);
+        if (!binding)
+            return;
+        const snapshot = nativeAssistantSnapshot(binding);
+        for (const { key, boundary } of pending) {
+            if (boundary.storePath !== binding.storePath || boundary.sessionKey !== binding.sessionKey)
+                continue;
+            const visible = new Set(boundary.visibleAssistantIds);
+            boundary.suppressedNativeIds = snapshot.assistantIds.filter(nativeId => nativeId.startsWith(`${boundary.sessionId}:`) && !visible.has(nativeId));
+            boundary.closed = true;
+            this.workflow.put(key, boundary);
+        }
     }
     recordHistoryBinding(conversationId, messageId, sender, text, clientMessageId) {
         const digest = createHash("sha256").update(text).digest("hex");
@@ -55,7 +91,27 @@ export class ConversationPort {
             .all(`history-ref:${conversationId}:%`).map(row => JSON.parse(row.value)).sort((a, b) => a.timestamp - b.timestamp);
         const binding = this.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`);
         if (binding !== undefined) {
-            for (const row of await readNativeHistory(JSON.parse(binding.value))) {
+            const trusted = JSON.parse(binding.value);
+            const history = await readNativeHistory(trusted);
+            const suppressed = new Set();
+            for (const { boundary } of this.nativeCancellations(conversationId)) {
+                if (boundary.storePath !== trusted.storePath || boundary.sessionKey !== trusted.sessionKey
+                    || this.workflow.get(`generation:${boundary.generationId}`)?.state !== "cancelled")
+                    continue;
+                if (boundary.closed)
+                    for (const nativeId of boundary.suppressedNativeIds ?? [])
+                        suppressed.add(nativeId);
+                else {
+                    const visible = new Set(boundary.visibleAssistantIds);
+                    for (const row of history)
+                        if (row.sender === "assistant" && row.nativeId.startsWith(`${boundary.sessionId}:`)
+                            && !visible.has(row.nativeId))
+                            suppressed.add(row.nativeId);
+                }
+            }
+            for (const row of history) {
+                if (suppressed.has(row.nativeId))
+                    continue;
                 const key = `history-native:${conversationId}:${createHash("sha256").update(row.nativeId).digest("hex")}`;
                 const mapped = this.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(key);
                 const digest = createHash("sha256").update(row.text).digest("hex");

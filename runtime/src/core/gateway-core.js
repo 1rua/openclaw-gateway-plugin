@@ -978,8 +978,15 @@ export const createGatewayCore = (options = {}) => {
                     if (cancelRoute) {
                         const context = request.context;
                         const body = bodyRecord(request.body);
-                        if (Object.keys(body).join() !== "requestId" || body.requestId !== context.requestId || request.idempotencyKey !== context.requestId)
-                            throw new Error("SCHEMA_INVALID");
+                        if (Object.prototype.hasOwnProperty.call(body, "requestId")) {
+                            // Compatibility for already deployed Android clients; the published body is clientMessageId.
+                            if (Object.keys(body).join() !== "requestId" || body.requestId !== context.requestId)
+                                throw new Error("SCHEMA_INVALID");
+                        }
+                        else
+                            assertSchema("conversation.generationCancel", request.body);
+                        if (request.idempotencyKey !== context.requestId)
+                            throw new Error("IDEMPOTENCY_CONFLICT");
                         const previous = account.store.database.prepare("SELECT 1 FROM idempotency_ledger WHERE device_id=? AND request_id=?").get(context.deviceId, context.requestId);
                         if (previous)
                             return runIdempotent(account, request, () => { throw new Error("OUTCOME_UNKNOWN"); });
