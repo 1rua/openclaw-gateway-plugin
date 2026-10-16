@@ -1,0 +1,95 @@
+
+ RUN  v4.1.11 /workspace/openclaw-gateway-plugin
+
+ ❯ test/host-turn-boundaries.test.ts (24 tests | 6 failed) 1433ms
+     × preserves runner-confirmed cancellation over a late UNSUPPORTED host response 51ms
+     × preserves runner-confirmed cancellation over a late ALREADY_COMPLETED host response 23ms
+     × starts the next native session before its first transcript is flushed 38ms
+     × preserves runner-confirmed cancellation over a late UNSUPPORTED host response 12ms
+     × preserves runner-confirmed cancellation over a late ALREADY_COMPLETED host response 11ms
+     × starts the next native session before its first transcript is flushed 54ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/host-turn-boundaries.test.ts > 'source' persisted native turn boundaries > preserves runner-confirmed cancellation over a late UNSUPPORTED host response
+ FAIL  test/host-turn-boundaries.test.ts > 'runtime' persisted native turn boundaries > preserves runner-confirmed cancellation over a late UNSUPPORTED host response
+AssertionError: expected { outcome: 'UNSUPPORTED', …(1) } to match object { outcome: 'CANCELLED' }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "outcome": "CANCELLED",
++   "outcome": "UNSUPPORTED",
+  }
+
+ ❯ test/host-turn-boundaries.test.ts:217:49
+    215|       f.manager.appendMessage(assistant("Late before runner settlement…
+    216|       f.account.conversations.workflow.completeCancellation(accepted.m…
+    217|       release();expect((await cancelling).data).toMatchObject({outcome…
+       |                                                 ^
+    218|       await f.reopen();f.manager.appendMessage(assistant("Late after h…
+    219|       const rows=(await f.account.conversations.listMessages(f.cid)).m…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  test/host-turn-boundaries.test.ts > 'source' persisted native turn boundaries > preserves runner-confirmed cancellation over a late ALREADY_COMPLETED host response
+ FAIL  test/host-turn-boundaries.test.ts > 'runtime' persisted native turn boundaries > preserves runner-confirmed cancellation over a late ALREADY_COMPLETED host response
+AssertionError: expected { outcome: 'ALREADY_COMPLETED', …(1) } to match object { outcome: 'CANCELLED' }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "outcome": "CANCELLED",
++   "outcome": "ALREADY_COMPLETED",
+  }
+
+ ❯ test/host-turn-boundaries.test.ts:217:49
+    215|       f.manager.appendMessage(assistant("Late before runner settlement…
+    216|       f.account.conversations.workflow.completeCancellation(accepted.m…
+    217|       release();expect((await cancelling).data).toMatchObject({outcome…
+       |                                                 ^
+    218|       await f.reopen();f.manager.appendMessage(assistant("Late after h…
+    219|       const rows=(await f.account.conversations.listMessages(f.cid)).m…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  test/host-turn-boundaries.test.ts > 'source' persisted native turn boundaries > starts the next native session before its first transcript is flushed
+Error: ENOENT: no such file or directory, open '/tmp/oai-turn-boundary-i8NMLp/2026-10-16T15-29-30-185Z_01a14555-2449-7c55-b205-8394b73ca704.jsonl'
+ ❯ readTranscript src/host/native-history.ts:60:12
+     58| const readTranscript = async (source: Readonly<{sessionId:string;file:…
+     59|   const rows: NativeHistoryMessage[] = [];
+     60|   const fd=openSync(source.file,"r");
+       |            ^
+     61|   let fileId:string;
+     62|   try { fileId=fileIdentity(fstatSync(fd,{bigint:true})); }
+ ❯ readNativeHistory src/host/native-history.ts:92:19
+ ❯ ConversationPort.listMessages src/core/conversation-port.ts:160:27
+ ❯ test/host-turn-boundaries.test.ts:241:53
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  test/host-turn-boundaries.test.ts > 'runtime' persisted native turn boundaries > starts the next native session before its first transcript is flushed
+Error: ENOENT: no such file or directory, open '/tmp/oai-turn-boundary-Zn3XV8/2026-10-16T15-29-30-751Z_01a14555-267f-70ce-9321-3229a6cb38ce.jsonl'
+ ❯ readTranscript runtime/src/host/native-history.js:53:16
+     51| const readTranscript = async (source) => {
+     52|     const rows = [];
+     53|     const fd = openSync(source.file, "r");
+       |                ^
+     54|     let fileId;
+     55|     try {
+ ❯ readNativeHistory runtime/src/host/native-history.js:92:21
+ ❯ ConversationPort.listMessages runtime/src/core/conversation-port.js:126:35
+ ❯ test/host-turn-boundaries.test.ts:241:53
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 18 passed (24)
+   Start at  15:29:17
+   Duration  13.75s (transform 2.57s, setup 0ms, import 12.08s, tests 1.43s, environment 0ms)
+

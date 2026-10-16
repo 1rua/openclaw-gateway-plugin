@@ -70,7 +70,15 @@ export class ConversationPort {
         const binding = this.workflow.get(`host-session:${conversationId}`);
         if (!binding)
             return;
-        const watermark = nativeHistoryWatermark(binding);
+        let watermark;
+        try {
+            watermark = nativeHistoryWatermark(binding);
+        }
+        catch (error) {
+            // A newly admitted native session has no file until its first flush.
+            if (error.code !== "ENOENT")
+                throw error;
+        }
         const legacy = pending.some(({ boundary }) => !boundary.watermark) ? nativeAssistantSnapshot(binding) : undefined;
         for (const { key, boundary } of pending) {
             if (boundary.storePath !== binding.storePath || boundary.sessionKey !== binding.sessionKey)

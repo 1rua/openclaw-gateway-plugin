@@ -1,0 +1,13 @@
+
+> @open-android-intelligence/openclaw@1.0.2 test
+> vitest run --maxWorkers=1
+
+
+ RUN  v4.1.11 /workspace/openclaw-gateway-plugin
+
+
+ Test Files  36 passed (36)
+      Tests  186 passed (186)
+   Start at  15:30:15
+   Duration  130.76s (transform 3.29s, setup 0ms, import 63.25s, tests 57.74s, environment 4ms)
+
