@@ -4,7 +4,7 @@ import { registerDeviceTools } from "./device-tools.js";
 import { existsSync } from "node:fs";
 import { createGatewayCore } from "../core/gateway-core.js";
 import { createGatewayRequestVerifier } from "../http/request-verifier.js";
-import { dispatchGatewayMessageToOpenClaw } from "./inbound-dispatch.js";
+import { dispatchGatewayMessageToOpenClaw, OPENCLAW_CHANNEL_ID } from "./inbound-dispatch.js";
 import { createAdminCliRegistrar, bindAdminService, } from "../admin/cli.js";
 import { createAdminPanel, createAdminService, } from "../admin/service.js";
 import { createGatewayExposure, OPENCLAW_HOST_API, } from "../http/routes.js";
@@ -241,8 +241,16 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
     let activeChannelAccountId = "default";
     let activeConfig = api.config;
     if (typeof nativeGateway?.request === "function") {
+        const runtime = asInboundRuntime(api.runtime?.channel);
         services.core.setCommandCatalogProvider?.(async () => {
-            const result = await nativeGateway.request("commands.list", { scope: "text", includeArgs: true }, { timeoutMs: 8000 });
+            if (!runtime)
+                throw new Error("AGENT_UNAVAILABLE");
+            const route = runtime.routing.resolveAgentRoute({ cfg: activeConfig, channel: OPENCLAW_CHANNEL_ID,
+                accountId: activeChannelAccountId });
+            if (typeof route.agentId !== "string" || !route.agentId)
+                throw new Error("AGENT_UNAVAILABLE");
+            const result = await nativeGateway.request("commands.list", { agentId: route.agentId, provider: OPENCLAW_CHANNEL_ID,
+                scope: "text", includeArgs: true }, { timeoutMs: 8000 });
             if (!Array.isArray(result.commands))
                 throw new Error("AGENT_UNAVAILABLE");
             return result.commands.flatMap(entry => {
@@ -254,12 +262,11 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
                         ...(args.length ? { argumentHint: args.map(arg => arg.required ? `<${arg.name}>` : `[${arg.name}]`).join(" ") } : {}) }];
             });
         });
-        const runtime = asInboundRuntime(api.runtime?.channel);
         if (runtime)
-            services.core.setHostConversationCreator?.(async (accountId, conversationId, title) => {
+            services.core.setHostConversationCreator?.(async (accountId, conversationId) => {
                 const binding = await resolveGatewayHostSession(runtime, activeConfig, activeChannelAccountId, accountId, conversationId);
-                const result = await nativeGateway.request("sessions.create", { key: binding.sessionKey, agentId: binding.agentId,
-                    ...(title ? { label: title } : {}) }, { timeoutMs: 8000 });
+                // Gateway titles may repeat; OpenClaw labels are unique lookup keys.
+                const result = await nativeGateway.request("sessions.create", { key: binding.sessionKey, agentId: binding.agentId }, { timeoutMs: 8000 });
                 if (result.ok !== true || result.key !== binding.sessionKey || result.runStarted === true)
                     throw new Error("AGENT_UNAVAILABLE");
                 return { storePath: binding.storePath, sessionKey: binding.sessionKey };
