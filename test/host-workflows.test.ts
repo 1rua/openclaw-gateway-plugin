@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { createGatewayCore, type VerifiedRequestContext } from "../src/core/gateway-core.js";
 import { registerOpenAndroidIntelligenceGateway } from "../src/host/channel-adapter.js";
-import { dispatchGatewayMessageToOpenClaw, type OpenClawInboundRuntime } from "../src/host/inbound-dispatch.js";
+import { dispatchGatewayMessageToOpenClaw, OPENCLAW_CHANNEL_ID, type OpenClawInboundRuntime } from "../src/host/inbound-dispatch.js";
 
 const context: VerifiedRequestContext = {accountId:"acct_host",deviceId:"dev_host",sessionId:"sess_host",requestId:"req_host",correlationId:"cor_host",pairingGeneration:1,grantRevision:1};
 const createCore=()=>createGatewayCore({storageRoot:mkdtempSync(join(tmpdir(),"oai-host-workflows-")),attachmentMasterKey:Buffer.alloc(32,5)});
@@ -76,7 +76,7 @@ describe("pinned OpenClaw host workflows",()=>{
   it("reads commands.list afresh including installed skills/plugins and changes the catalog version",async()=>{
     const core=createCore(); let commands=[{name:"status",description:"Host status",acceptsArgs:false}];
     register(core,runtime(async()=>({})),async(method,params)=>{
-      expect(method).toBe("commands.list");expect(params).toEqual({scope:"text",includeArgs:true});return {commands};
+      expect(method).toBe("commands.list");expect(params).toEqual({agentId:"main",provider:OPENCLAW_CHANNEL_ID,scope:"text",includeArgs:true});return {commands};
     });
     const request={context,method:"GET" as const,target:"/open-android-intelligence/v2/commands?languageCode=zh-CN"};
     const first=await core.handle(request);
