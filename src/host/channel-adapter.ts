@@ -141,7 +141,7 @@ const startInboundWorker = (
   const nextAttachmentSweepAt = new Map<string, number>();
   if(runtime) core.setHostSessionResolver?.(async (accountId,conversationId)=> {
     const binding=await resolveGatewayHostSession(runtime,cfg,channelAccountId,accountId,conversationId);
-    return existsSync(binding.storePath) ? {storePath:binding.storePath,sessionKey:binding.sessionKey} : undefined;
+    return existsSync(binding.storePath) ? binding : undefined;
   });
   const run = async (): Promise<void> => {
     while (!abortSignal.aborted) {
@@ -403,7 +403,7 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
       // Gateway titles may repeat; OpenClaw labels are unique lookup keys.
       const result=await nativeGateway.request("sessions.create", {key:binding.sessionKey,agentId:binding.agentId}, {timeoutMs:8000}) as {ok?:boolean;key?:string;runStarted?:boolean};
       if (result.ok !== true || result.key !== binding.sessionKey || result.runStarted === true) throw new Error("AGENT_UNAVAILABLE");
-      return {storePath:binding.storePath,sessionKey:binding.sessionKey};
+      return binding;
     });
   }
   if (typeof nativeGateway?.request === "function") services.core.setGenerationCanceller?.(async(accountId,conversationId,generationId)=> {
@@ -411,6 +411,9 @@ export const registerOpenAndroidIntelligenceGateway = (api: OpenClawPluginApi): 
     try {
       const generation=account.conversations.workflow.get<{state:string}>(`generation:${generationId}`);
       if (generation?.state === "completed" || generation?.state === "failed") return "ALREADY_COMPLETED";
+      await account.conversations.beginHostCancellation(conversationId,generationId);
+      const current=account.conversations.workflow.get<{state:string}>(`generation:${generationId}`);
+      if (current?.state === "completed" || current?.state === "failed") return "ALREADY_COMPLETED";
       const tracked=await abortTrackedTurn(accountId,generationId);
       if (tracked) return tracked;
       const binding=account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`) as {value:string}|undefined;

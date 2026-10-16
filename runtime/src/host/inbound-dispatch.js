@@ -59,9 +59,12 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
         const run = channelRuntime.inbound.run;
         const buildContext = channelRuntime.inbound.buildContext;
         const recordInboundSession = channelRuntime.session.recordInboundSession;
+        const existing = account.conversations.workflow.get(`host-session:${message.conversationId}`);
+        const boundRoute = await resolveGatewayHostSession(channelRuntime, cfg, channelAccountId, gatewayAccountId, message.conversationId, existing);
+        account.conversations.bindHostSession(message.conversationId, boundRoute);
         const runResult = recordOf(await trustedDeviceTurn.run({ accountId: gatewayAccountId, messageId: message.messageId }, () => run({
             channel: OPENCLAW_CHANNEL_ID,
-            accountId: channelAccountId,
+            accountId: boundRoute.accountId,
             raw,
             onTurnAdopted: async () => {
                 markAgentDelivered();
@@ -96,17 +99,14 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                     const event = recordOf(value["raw"]);
                     const gatewayMessage = recordOf(event["message"]);
                     const facts = recordOf(preflight);
-                    const route = await resolveGatewayHostSession(channelRuntime, cfg, channelAccountId, gatewayAccountId, message.conversationId);
-                    const existing = account.conversations.workflow.get(`host-session:${message.conversationId}`);
-                    if (existing)
-                        Object.assign(route, existing);
+                    const route = boundRoute;
                     const storePath = route.storePath;
                     const timestamp = Number(value["timestamp"]);
-                    account.conversations.bindHostSession(message.conversationId, { storePath, sessionKey: route.sessionKey });
+                    account.conversations.bindHostSession(message.conversationId, route);
                     const messageText = String(value["rawText"] ?? "");
                     const context = buildContext({
                         channel: OPENCLAW_CHANNEL_ID,
-                        accountId: channelAccountId,
+                        accountId: route.accountId,
                         messageId: String(gatewayMessage["messageId"]),
                         messageIdFull: String(gatewayMessage["clientMessageId"]),
                         timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
@@ -134,7 +134,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                     return Object.freeze({
                         cfg,
                         channel: OPENCLAW_CHANNEL_ID,
-                        accountId: channelAccountId,
+                        accountId: route.accountId,
                         agentId: route.agentId,
                         routeSessionKey: route.sessionKey,
                         storePath,
@@ -151,7 +151,8 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                             });
                         },
                         dispatchReplyWithBufferedBlockDispatcher: channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher,
-                        replyOptions: { runId: generationId ?? message.messageId, abortSignal: turn.signal },
+                        replyOptions: { runId: generationId ?? message.messageId, abortSignal: turn.signal,
+                            onAgentRunStart: () => account.conversations.beginHostTurn(message.conversationId, generationId) },
                         delivery: {
                             deliver: async (payload) => {
                                 try {

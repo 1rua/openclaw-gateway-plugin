@@ -1,4 +1,4 @@
-import { resolveGatewayHostSession } from "./host-session.js";
+import { resolveGatewayHostSession, type HostSessionBinding } from "./host-session.js";
 import { trackTurn } from "./active-turns.js";
 import { HistoryMedia } from "../core/history-media.js";
 import type { GatewayAccount } from "../core/gateway-core.js";
@@ -105,9 +105,12 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
     const buildContext = channelRuntime.inbound.buildContext as unknown as (facts: Readonly<Record<string, unknown>>) => unknown;
     const recordInboundSession = channelRuntime.session.recordInboundSession as unknown as (facts: Readonly<Record<string, unknown>>) => Promise<void>;
 
+    const existing=account.conversations.workflow.get<HostSessionBinding>(`host-session:${message.conversationId}`);
+    const boundRoute=await resolveGatewayHostSession(channelRuntime,cfg,channelAccountId,gatewayAccountId,message.conversationId,existing);
+    account.conversations.bindHostSession(message.conversationId,boundRoute);
     const runResult = recordOf(await trustedDeviceTurn.run({accountId:gatewayAccountId,messageId:message.messageId},() => run({
       channel: OPENCLAW_CHANNEL_ID,
-      accountId: channelAccountId,
+      accountId: boundRoute.accountId,
       raw,
       onTurnAdopted: async (): Promise<void> => {
         markAgentDelivered();
@@ -142,16 +145,14 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
           const event = recordOf(value["raw"]);
           const gatewayMessage = recordOf(event["message"]);
           const facts = recordOf(preflight);
-          const route = await resolveGatewayHostSession(channelRuntime, cfg, channelAccountId, gatewayAccountId, message.conversationId);
-          const existing = account.conversations.workflow.get<{storePath:string;sessionKey:string}>(`host-session:${message.conversationId}`);
-          if (existing) Object.assign(route, existing);
+          const route = boundRoute;
           const storePath = route.storePath;
           const timestamp = Number(value["timestamp"]);
-          account.conversations.bindHostSession(message.conversationId, { storePath, sessionKey: route.sessionKey });
+          account.conversations.bindHostSession(message.conversationId, route);
           const messageText = String(value["rawText"] ?? "");
           const context = buildContext({
             channel: OPENCLAW_CHANNEL_ID,
-            accountId: channelAccountId,
+            accountId: route.accountId,
             messageId: String(gatewayMessage["messageId"]),
             messageIdFull: String(gatewayMessage["clientMessageId"]),
             timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
@@ -179,7 +180,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
           return Object.freeze({
             cfg,
             channel: OPENCLAW_CHANNEL_ID,
-            accountId: channelAccountId,
+            accountId: route.accountId,
             agentId: route.agentId,
             routeSessionKey: route.sessionKey,
             storePath,
@@ -196,7 +197,8 @@ export const dispatchGatewayMessageToOpenClaw = async (input: Readonly<{
               });
             },
             dispatchReplyWithBufferedBlockDispatcher: channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher,
-            replyOptions: { runId: generationId ?? message.messageId, abortSignal: turn.signal },
+            replyOptions: { runId: generationId ?? message.messageId, abortSignal: turn.signal,
+              onAgentRunStart: () => account.conversations.beginHostTurn(message.conversationId,generationId) },
             delivery: {
               deliver: async (payload?: Readonly<Record<string, unknown>>): Promise<void> => {
                 try {

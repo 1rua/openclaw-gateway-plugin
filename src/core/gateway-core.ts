@@ -1,3 +1,4 @@
+import type { HostSessionBinding } from "../host/host-session.js";
 import type { GenerationCanceller } from "./conversation-workflow.js";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
@@ -128,9 +129,9 @@ export type GatewayCore = Readonly<{
   /** Resource-level removal of one logical Gateway (contract §13). */
   deleteGatewayAccount: (accountId: string) => boolean;
   setCommandCatalogProvider?: (provider: () => Promise<readonly Record<string, unknown>[]>) => void;
-  setHostConversationCreator?: (create: (accountId:string,conversationId:string,title:string|null)=>Promise<{storePath:string;sessionKey:string}>) => void;
+  setHostConversationCreator?: (create: (accountId:string,conversationId:string,title:string|null)=>Promise<HostSessionBinding>) => void;
   setGenerationCanceller?: (cancel: GenerationCanceller) => void;
-  setHostSessionResolver?: (resolver:(accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined|Promise<Readonly<{storePath:string;sessionKey:string}>|undefined>)=>void;
+  setHostSessionResolver?: (resolver:(accountId:string,conversationId:string)=>HostSessionBinding|undefined|Promise<HostSessionBinding|undefined>)=>void;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
   uploadAttachmentContent?: (
     request: VerifiedGatewayRequest,
@@ -543,7 +544,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   const tlsSpkiSha256 = options.tlsSpkiSha256 ?? process.env["OPEN_ANDROID_INTELLIGENCE_GATEWAY_TLS_SPKI_SHA256"] ?? null;
   if (tlsSpkiSha256 !== null && (!/^sha256:[a-f0-9]{64}$/.test(tlsSpkiSha256) || tlsSpkiSha256 === `sha256:${"0".repeat(64)}`)) throw new Error("GATEWAY_TLS_IDENTITY_INVALID");
   let commandCatalogProvider: (()=>Promise<readonly Record<string,unknown>[]>) | undefined;
-  let hostConversationCreator: ((accountId:string,conversationId:string,title:string|null)=>Promise<{storePath:string;sessionKey:string}>) | undefined;
+  let hostConversationCreator: ((accountId:string,conversationId:string,title:string|null)=>Promise<HostSessionBinding>) | undefined;
   let generationCanceller: GenerationCanceller | undefined;
   let hostSessionResolver:Parameters<NonNullable<GatewayCore['setHostSessionResolver']>>[0]|undefined;
   const openAccount=async(accountId:string):Promise<GatewayAccount>=> {
@@ -1062,7 +1063,11 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
           if (cancelRoute) {
             const context=request.context!;
             const body=bodyRecord(request.body);
-            if (Object.keys(body).join()!=="requestId" || body.requestId!==context.requestId || request.idempotencyKey!==context.requestId) throw new Error("SCHEMA_INVALID");
+            if (Object.prototype.hasOwnProperty.call(body,"requestId")) {
+              // Compatibility for already deployed Android clients; the published body is clientMessageId.
+              if (Object.keys(body).join()!=="requestId" || body.requestId!==context.requestId) throw new Error("SCHEMA_INVALID");
+            } else assertSchema("conversation.generationCancel",request.body);
+            if (request.idempotencyKey!==context.requestId) throw new Error("IDEMPOTENCY_CONFLICT");
             const previous=account.store.database.prepare("SELECT 1 FROM idempotency_ledger WHERE device_id=? AND request_id=?").get(context.deviceId,context.requestId);
             if (previous) return runIdempotent(account,request,()=> { throw new Error("OUTCOME_UNKNOWN"); });
             const key=JSON.stringify([context.accountId,cancelRoute[2],context.deviceId]);

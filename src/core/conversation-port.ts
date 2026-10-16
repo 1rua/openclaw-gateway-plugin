@@ -1,7 +1,8 @@
 import { ConversationWorkflow } from "./conversation-workflow.js";
 import { HistoryMedia } from "./history-media.js";
 import { randomUUID, createHash } from "node:crypto";
-import { nativeHistoryStamp, readNativeHistory } from "../host/native-history.js";
+import type { HostSessionBinding } from "../host/host-session.js";
+import { nativeHistoryStamp, readNativeHistory, readNativeHistorySnapshot, nativeAssistantSnapshot } from "../host/native-history.js";
 
 import { AttachmentStore } from "./attachment-store.js";
 import type { GatewayAccountStore } from "./account-store.js";
@@ -41,14 +42,52 @@ export type GatewayMessage = Readonly<{
   dispatchAttempts: number;
 }>;
 
+type NativeCancellationBoundary = {
+  conversationId:string;generationId:string;storePath:string;sessionKey:string;sessionId:string;
+  visibleAssistantIds:string[];closed:boolean;suppressedNativeIds?:string[];
+};
+
 export class ConversationPort {
   readonly workflow: ConversationWorkflow;
-  private hostSessionResolver?: (accountId:string,conversationId:string)=>Readonly<{storePath:string;sessionKey:string}>|undefined|Promise<Readonly<{storePath:string;sessionKey:string}>|undefined>;
+  private hostSessionResolver?: (accountId:string,conversationId:string)=>HostSessionBinding|undefined|Promise<HostSessionBinding|undefined>;
   setHostSessionResolver(resolver:NonNullable<ConversationPort['hostSessionResolver']>):void {this.hostSessionResolver=resolver;}
-  bindHostSession(conversationId: string, binding: Readonly<{ storePath: string; sessionKey: string }>): void {
+  bindHostSession(conversationId: string, binding: HostSessionBinding): void {
     this.get(conversationId);
     this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)")
       .run(`host-session:${conversationId}`, JSON.stringify(binding));
+  }
+
+  private nativeCancellations(conversationId:string): Array<{key:string;boundary:NativeCancellationBoundary}> {
+    return (this.store.database.prepare("SELECT key,value FROM account_metadata WHERE key LIKE ?").all(`native-cancellation:${conversationId}:%`) as Array<{key:string;value:string}>)
+      .map(row=>({key:row.key,boundary:JSON.parse(row.value) as NativeCancellationBoundary}))
+      .filter(({boundary})=>boundary.conversationId===conversationId);
+  }
+
+  async beginHostCancellation(conversationId:string,generationId:string):Promise<void> {
+    const key=`native-cancellation:${conversationId}:${generationId}`;
+    if (this.workflow.get(key)) return;
+    const binding=this.workflow.get<HostSessionBinding>(`host-session:${conversationId}`);
+    if (!binding) return;
+    const snapshot=await readNativeHistorySnapshot(binding);
+    if (!snapshot.sessionId) return;
+    this.workflow.put(key,{conversationId,generationId,storePath:binding.storePath,sessionKey:binding.sessionKey,
+      sessionId:snapshot.sessionId,visibleAssistantIds:snapshot.messages.filter(row=>row.sender==="assistant").map(row=>row.nativeId),closed:false} satisfies NativeCancellationBoundary);
+  }
+
+  beginHostTurn(conversationId:string,generationId?:string):void {
+    const pending=this.nativeCancellations(conversationId).filter(({boundary})=>!boundary.closed && boundary.generationId!==generationId
+      && this.workflow.get<{state:string}>(`generation:${boundary.generationId}`)?.state==="cancelled");
+    if (!pending.length) return;
+    const binding=this.workflow.get<HostSessionBinding>(`host-session:${conversationId}`);
+    if (!binding) return;
+    const snapshot=nativeAssistantSnapshot(binding);
+    for (const {key,boundary} of pending) {
+      if (boundary.storePath!==binding.storePath || boundary.sessionKey!==binding.sessionKey) continue;
+      const visible=new Set(boundary.visibleAssistantIds);
+      boundary.suppressedNativeIds=snapshot.assistantIds.filter(nativeId=>nativeId.startsWith(`${boundary.sessionId}:`) && !visible.has(nativeId));
+      boundary.closed=true;
+      this.workflow.put(key,boundary);
+    }
   }
 
   recordHistoryBinding(conversationId: string, messageId: string, sender: string, text: string, clientMessageId?: string): void {
@@ -92,7 +131,21 @@ export class ConversationPort {
       }).sort((a,b) => a.timestamp-b.timestamp);
     const binding = this.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(`host-session:${conversationId}`) as { value: string } | undefined;
     if (binding !== undefined) {
-      for (const row of await readNativeHistory(JSON.parse(binding.value))) {
+      const trusted=JSON.parse(binding.value) as HostSessionBinding;
+      const history=await readNativeHistory(trusted);
+      const suppressed=new Set<string>();
+      for (const {boundary} of this.nativeCancellations(conversationId)) {
+        if (boundary.storePath!==trusted.storePath || boundary.sessionKey!==trusted.sessionKey
+          || this.workflow.get<{state:string}>(`generation:${boundary.generationId}`)?.state!=="cancelled") continue;
+        if (boundary.closed) for (const nativeId of boundary.suppressedNativeIds ?? []) suppressed.add(nativeId);
+        else {
+          const visible=new Set(boundary.visibleAssistantIds);
+          for (const row of history) if (row.sender==="assistant" && row.nativeId.startsWith(`${boundary.sessionId}:`)
+            && !visible.has(row.nativeId)) suppressed.add(row.nativeId);
+        }
+      }
+      for (const row of history) {
+        if (suppressed.has(row.nativeId)) continue;
         const key = `history-native:${conversationId}:${createHash("sha256").update(row.nativeId).digest("hex")}`;
         const mapped = this.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(key) as { value: string } | undefined;
         const digest = createHash("sha256").update(row.text).digest("hex");
