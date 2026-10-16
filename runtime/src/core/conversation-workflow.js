@@ -193,6 +193,9 @@ export class ConversationWorkflow {
         if (!["CANCELLED", "ALREADY_COMPLETED", "UNSUPPORTED", "OUTCOME_UNKNOWN"].includes(outcome))
             throw new Error("SCHEMA_INVALID");
         const generation = this.get(`generation:${generationId}`);
+        // The runner may confirm abort while the native cancellation RPC is pending.
+        if (generation.state === "cancelled")
+            outcome = "CANCELLED";
         if (outcome === "CANCELLED") {
             this.completeCancellation(generation.messageIds[0], context.correlationId, now);
         }

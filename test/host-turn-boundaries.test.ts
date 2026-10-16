@@ -1,5 +1,5 @@
 import { basename, dirname, join } from "node:path";
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
@@ -199,6 +199,48 @@ describe.each(implementations)("$flavor persisted native turn boundaries",impl=>
         expect(rows.some(row=>row.text==="Late after damaged history repair")).toBe(false);
       } finally {writeFileSync(path,original);release();await run;await cancelling;f.close();}
     }
+  });
+
+  it.each(["UNSUPPORTED","ALREADY_COMPLETED"] as const)("preserves runner-confirmed cancellation over a late %s host response",async(hostOutcome)=>{
+    const f=await setup(impl);
+    let entered!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;});
+    let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+    try {
+      const accepted=f.accept("Runner confirms first");f.account.conversations.claimNextMessage();f.account.conversations.markDelivered(accepted.messageId,"cor_adopted");
+      f.core.setGenerationCanceller!(async(_accountId,conversationId,generationId)=>{
+        await f.account.conversations.beginHostCancellation(conversationId,generationId);entered();await held;return hostOutcome;
+      });
+      const cancelling=f.core.handle({context:ctx,method:"POST",target:`/open-android-intelligence/v2/conversations/${f.cid}/generations/${accepted.generationId}/cancel`,idempotencyKey:ctx.requestId,body:{clientMessageId:"client_cancel_deferred"}});
+      await started;expect(f.account.conversations.workflow.current(f.cid)?.state).toBe("unknown");
+      f.manager.appendMessage(assistant("Late before runner settlement"));
+      f.account.conversations.workflow.completeCancellation(accepted.messageId,"synthetic_runner_correlation");
+      release();expect((await cancelling).data).toMatchObject({outcome:"CANCELLED"});
+      await f.reopen();f.manager.appendMessage(assistant("Late after host receipt"));
+      const rows=(await f.account.conversations.listMessages(f.cid)).messages as Array<{text:string}>;
+      expect(rows.some(row=>row.text==="same text")).toBe(true);
+      expect(rows.some(row=>row.text.startsWith("Late "))).toBe(false);
+      const events=f.account.events.readAfter(null).filter(event=>event.eventType==="conversation.generation.cancelled");
+      expect(events).toHaveLength(1);expect(events[0]?.correlationId).toBe(ctx.correlationId);
+    } finally {release();f.close();}
+  });
+
+  it("starts the next native session before its first transcript is flushed",async()=>{
+    const f=await cancelScenario(impl);
+    try {
+      const next=SessionManager.create(dirname(f.storePath),dirname(f.storePath));
+      expect(existsSync(next.getSessionFile()!)).toBe(false);
+      writeFileSync(f.storePath,JSON.stringify({[f.sessionKey]:{sessionId:next.getSessionId(),sessionFile:basename(next.getSessionFile()!)}}));
+      const channel=f.runtime(async input=>{
+        expect(existsSync(next.getSessionFile()!)).toBe(false);
+        input.replyOptions.onAgentRunStart(input.replyOptions.runId);
+        next.appendMessage(user("Unflushed next session"));await input.replyOptions.onTurnAdopted();
+        next.appendMessage(assistant("Normal next-session response"));await input.dispatcherOptions.deliver({text:"Normal next-session response"},{kind:"final"});
+        return {queuedFinal:true,counts:{tool:0,block:0,final:1}};
+      });
+      const accepted=f.accept("Unflushed next session");await f.dispatch(channel);
+      expect(f.fixture.account.conversations.getMessage(accepted.messageId).status).toBe("completed");
+      expect((await f.fixture.account.conversations.listMessages(f.cid)).messages).toEqual(expect.arrayContaining([expect.objectContaining({text:"Normal next-session response"})]));
+    } finally {f.close();}
   });
 
   it("retains the original persisted boundary and correlation after OUTCOME_UNKNOWN and retry",async()=>{
