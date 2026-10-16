@@ -167,6 +167,7 @@ export const dispatchGatewayMessageToOpenClaw = async (input) => {
                                         const workspace = recordOf(recordOf(recordOf(cfg)["agents"])["defaults"])["workspace"];
                                         const parts = [...(typeof text === "string" ? [{ type: "text", text }] : []), ...mediaUrls.map(url => new HistoryMedia(account.store, account.accountId).register(message.conversationId, messageId, String(url), String(payload?.["mediaType"] ?? "application/octet-stream"), typeof workspace === "string" ? [workspace] : []))];
                                         account.conversations.recordHistoryBinding(message.conversationId, messageId, "assistant", typeof text === "string" ? text : "");
+                                        account.conversations.checkpointHostHistory(message.conversationId);
                                         parts.filter(p => p.type === "attachment").forEach((part, i) => { const key = `history-media-reply:${messageId}:${i}`; account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)").run(key, account.store.sealJson(part, key)); });
                                         account.events.append({
                                             eventType: "conversation.message.completed",

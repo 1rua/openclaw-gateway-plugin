@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /workspace/openclaw-gateway-plugin
+
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  15:23:10
+   Duration  21.88s (transform 3.22s, setup 0ms, import 18.62s, tests 2.19s, environment 0ms)
+

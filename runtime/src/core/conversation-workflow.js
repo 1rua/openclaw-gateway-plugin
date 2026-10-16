@@ -198,6 +198,12 @@ export class ConversationWorkflow {
         }
         else if (outcome === "ALREADY_COMPLETED")
             this.settle(generation.messageIds[0], "completed");
+        if (outcome === "UNSUPPORTED" || outcome === "ALREADY_COMPLETED") {
+            this.store.database.prepare("DELETE FROM account_metadata WHERE key IN (?,?)")
+                .run(`native-cancellation:${conversationId}:${generationId}`, `generation-cancel-request:${generationId}`);
+            if (outcome === "UNSUPPORTED")
+                this.settle(generation.messageIds[0], "running");
+        }
         return { outcome, generationId };
     }
     expandHistory(row) {

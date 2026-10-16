@@ -1,10 +1,10 @@
-import { createReadStream, readFileSync, statSync } from "node:fs";
+import { createReadStream, readFileSync, statSync, openSync, fstatSync, closeSync } from "node:fs";
 import { dirname, resolve, relative, isAbsolute } from "node:path";
-import { createInterface } from "node:readline";
 
 export type NativeHistoryMessage = Readonly<{
   nativeId: string; sender: "user" | "assistant"; text: string; timestamp: number;
   clientMessageId?: string; deleted?: boolean; mediaPaths?: readonly string[];
+  nativePosition?: Readonly<{ fileId:string; byteEnd:number }>;
 }>;
 
 type NativeHistoryBinding = Readonly<{ storePath: string; sessionKey: string }>;
@@ -21,6 +21,17 @@ const nativeTranscript = (binding: NativeHistoryBinding): Readonly<{ sessionId: 
   return { sessionId: entry.sessionId, file };
 };
 
+export type NativeHistoryWatermark = Readonly<{ sessionId:string; fileId:string; byteLength:number }>;
+const fileIdentity = (stat: {dev:bigint;ino:bigint}):string => `${stat.dev}:${stat.ino}`;
+
+/** Capture before signalling abort: no transcript reads or JSONL parsing. */
+export const nativeHistoryWatermark = (binding:NativeHistoryBinding):NativeHistoryWatermark|undefined => {
+  const source=nativeTranscript(binding);
+  if (!source) return undefined;
+  const stat=statSync(source.file,{bigint:true});
+  return {sessionId:source.sessionId,fileId:fileIdentity(stat),byteLength:Number(stat.size)};
+};
+
 // 仅用于正在传输的原件检测宿主文件变化，不进入消息版本或协议字段。
 export const nativeHistoryStamp = (binding: NativeHistoryBinding): string => {
   const source = nativeTranscript(binding);
@@ -29,11 +40,28 @@ export const nativeHistoryStamp = (binding: NativeHistoryBinding): string => {
   return JSON.stringify([binding, source, ...[stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].map(String)]);
 };
 
+/** Keep exact UTF-8 byte offsets, including CRLF and a final unterminated line. */
+async function* transcriptLines(file:string,fd:number):AsyncGenerator<{line:string;end:number}> {
+  let pending=Buffer.alloc(0),offset=0;
+  for await (const chunk of createReadStream(file,{fd})) {
+    pending=Buffer.concat([pending,chunk as Buffer]);
+    let newline:number;
+    while ((newline=pending.indexOf(10))>=0) {
+      const bytes=pending.subarray(0,newline+1);offset+=bytes.length;
+      yield {line:bytes.toString("utf8"),end:offset};pending=pending.subarray(newline+1);
+    }
+  }
+  if (pending.length) yield {line:pending.toString("utf8"),end:offset+pending.length};
+}
+
 /** The binding is produced exclusively by the verified SDK's session recorder. */
 const readTranscript = async (source: Readonly<{sessionId:string;file:string}>): Promise<NativeHistoryMessage[]> => {
   const rows: NativeHistoryMessage[] = [];
-  const lines = createInterface({ input: createReadStream(source.file, { encoding: "utf8" }), crlfDelay: Infinity });
-  for await (const line of lines) {
+  const fd=openSync(source.file,"r");
+  let fileId:string;
+  try { fileId=fileIdentity(fstatSync(fd,{bigint:true})); }
+  catch (error) { closeSync(fd);throw error; }
+  for await (const {line,end:byteEnd} of transcriptLines(source.file,fd)) {
     if (!line.trim()) continue;
     const raw = JSON.parse(line) as Record<string, unknown>;
     if (raw.type !== "message" || typeof raw.id !== "string") continue;
@@ -45,7 +73,7 @@ const readTranscript = async (source: Readonly<{sessionId:string;file:string}>):
           (part as Record<string, unknown>).type === "text" && typeof (part as Record<string, unknown>).text === "string"
           ? [(part as Record<string, unknown>).text as string] : []).join("") : "";
     const time = typeof message.timestamp === "number" ? message.timestamp : Date.parse(String(raw.timestamp));
-    rows.push({ nativeId: `${source.sessionId}:${raw.id}`, sender: message.role, text,
+    rows.push({ nativePosition:{fileId,byteEnd}, nativeId: `${source.sessionId}:${raw.id}`, sender: message.role, text,
       ...(raw.deleted === true || message.deleted === true ? { deleted: true } : {}),
       timestamp: Number.isFinite(time) ? time : rows.length + 1,
       ...(Array.isArray(message.content) ? {mediaPaths:message.content.flatMap((part:unknown)=> {

@@ -1,5 +1,5 @@
 import { basename, dirname, join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
@@ -145,4 +145,101 @@ describe.each(implementations)("$flavor persisted native turn boundaries",impl=>
       expect((await f.core.handle({...base,idempotencyKey:"wrong",body:{clientMessageId:"valid"}})).error).toBeDefined();
     } finally {f.close();}
   });
+  it("filters late native rows for another reader while the abort receipt is still pending",async()=>{
+    const f=await setup(impl);let start!:()=>void;const started=new Promise<void>(resolve=>{start=resolve;});
+    let aborted!:()=>void;const sawAbort=new Promise<void>(resolve=>{aborted=resolve;});
+    let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+    f.manager.appendMessage(assistant("保留 🌙"));
+    const transcript=f.manager.getSessionFile()!;
+    writeFileSync(transcript,readFileSync(transcript,"utf8").replaceAll("\n","\r\n"));
+    const channel=f.runtime(async input=>{
+      input.replyOptions.onAgentRunStart(input.replyOptions.runId);
+      f.manager.appendMessage(user("Pending cancellation"));await input.replyOptions.onTurnAdopted();start();
+      await new Promise<void>(resolve=>input.replyOptions.abortSignal.addEventListener("abort",()=>resolve(),{once:true}));
+      f.manager.appendMessage(assistant("Late while abort pending"));aborted();await held;
+      return {queuedFinal:false,counts:{tool:0,block:0,final:0}};
+    });
+    f.register(channel);const accepted=f.accept("Pending cancellation");const run=f.dispatch(channel);await started;
+    const cancelling=f.core.handle({context:ctx,method:"POST",target:`/open-android-intelligence/v2/conversations/${f.cid}/generations/${accepted.generationId}/cancel`,idempotencyKey:ctx.requestId,body:{clientMessageId:"client_cancel_pending"}});
+    try {
+      await sawAbort;const reader=await f.core.openGatewayAccount(ctx.accountId);
+      try {
+        expect(reader.conversations.workflow.current(f.cid)?.state).toBe("unknown");
+        const rows=(await reader.conversations.listMessages(f.cid)).messages as Array<{text:string}>;
+        expect(rows.some(row=>row.text==="same text")).toBe(true);
+        expect(rows.some(row=>row.text==="保留 🌙")).toBe(true);
+        expect(rows.some(row=>row.text==="Late while abort pending")).toBe(false);
+      } finally {reader.close();}
+    } finally {release();await run;await cancelling;f.close();}
+  });
+
+  it("signals abort despite unreadable session metadata or a damaged transcript, retaining prior history",async()=>{
+    for (const damage of ["store","transcript","missing-transcript"]) {
+      const f=await setup(impl);let start!:()=>void;const started=new Promise<void>(resolve=>{start=resolve;});
+      let aborted!:()=>void;const sawAbort=new Promise<void>(resolve=>{aborted=resolve;});
+      let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+      const channel=f.runtime(async input=>{
+        input.replyOptions.onAgentRunStart(input.replyOptions.runId);
+        f.manager.appendMessage(user("Cancel with damaged history"));await input.replyOptions.onTurnAdopted();
+        input.replyOptions.abortSignal.addEventListener("abort",()=>aborted(),{once:true});start();await held;
+        return {queuedFinal:false,counts:{tool:0,block:0,final:0}};
+      });
+      f.register(channel);const accepted=f.accept("Cancel with damaged history");const run=f.dispatch(channel);await started;
+      const path=damage==="store" ? f.storePath : f.manager.getSessionFile()!;const original=readFileSync(path);
+      if (damage==="store") writeFileSync(path,"invalid store JSON");
+      else if (damage==="missing-transcript") renameSync(path,`${path}.held`);
+      else appendFileSync(path,"invalid transcript JSON\n");
+      const cancelling=f.core.handle({context:ctx,method:"POST",target:`/open-android-intelligence/v2/conversations/${f.cid}/generations/${accepted.generationId}/cancel`,idempotencyKey:ctx.requestId,body:{clientMessageId:`client_cancel_${damage}`}});
+      try {
+        expect(await Promise.race([sawAbort.then(()=>true),cancelling.then(()=>false)])).toBe(true);
+        if (damage==="missing-transcript") renameSync(`${path}.held`,path);else writeFileSync(path,original);
+        f.manager.appendMessage(assistant("Late after damaged history repair"));
+        const rows=(await f.account.conversations.listMessages(f.cid)).messages as Array<{text:string}>;
+        expect(rows.some(row=>row.text==="same text")).toBe(true);
+        expect(rows.some(row=>row.text==="Late after damaged history repair")).toBe(false);
+      } finally {writeFileSync(path,original);release();await run;await cancelling;f.close();}
+    }
+  });
+
+  it("retains the original persisted boundary and correlation after OUTCOME_UNKNOWN and retry",async()=>{
+    const f=await setup(impl);let attempts=0;
+    try {
+      const accepted=f.accept("Retry unknown cancellation");f.account.conversations.claimNextMessage();f.account.conversations.markDelivered(accepted.messageId,"cor_adopted");
+      f.core.setGenerationCanceller!(async(_accountId,conversationId,generationId)=>{
+        await f.account.conversations.beginHostCancellation(conversationId,generationId);
+        f.manager.appendMessage(assistant(`Late unknown attempt ${++attempts}`));return attempts===1 ? "OUTCOME_UNKNOWN" : "CANCELLED";
+      });
+      const make=(requestId:string)=>({context:{...ctx,requestId,correlationId:`cor_${requestId}`},method:"POST" as const,target:`/open-android-intelligence/v2/conversations/${f.cid}/generations/${accepted.generationId}/cancel`,idempotencyKey:requestId,body:{clientMessageId:`client_${requestId}`}});
+      expect((await f.core.handle(make("req_unknown"))).data).toMatchObject({outcome:"OUTCOME_UNKNOWN"});
+      await f.reopen();
+      expect((await f.account.conversations.listMessages(f.cid)).messages).not.toEqual(expect.arrayContaining([expect.objectContaining({text:"Late unknown attempt 1"})]));
+      expect((await f.core.handle(make("req_retry"))).data).toMatchObject({outcome:"CANCELLED"});
+      const rows=(await f.account.conversations.listMessages(f.cid)).messages as Array<{text:string}>;
+      expect(rows.some(row=>row.text==="same text")).toBe(true);
+      expect(rows.some(row=>row.text.startsWith("Late unknown attempt"))).toBe(false);
+      expect(f.account.events.readAfter(null).find(event=>event.eventType==="conversation.generation.cancelled")?.correlationId).toBe("cor_req_unknown");
+    } finally {f.close();}
+  });
+
+  it("deactivates unsupported cancellation and captures a fresh boundary for a later valid attempt",async()=>{
+    const f=await setup(impl);let attempts=0;
+    try {
+      const accepted=f.accept("Retry cancellation");f.account.conversations.claimNextMessage();f.account.conversations.markDelivered(accepted.messageId,"cor_adopted");
+      f.core.setGenerationCanceller!(async(_accountId,conversationId,generationId)=>{
+        await f.account.conversations.beginHostCancellation(conversationId,generationId);
+        if (++attempts===1) return "UNSUPPORTED";
+        f.manager.appendMessage(assistant("Late in second cancellation"));return "CANCELLED";
+      });
+      const make=(requestId:string)=>({context:{...ctx,requestId,correlationId:`cor_${requestId}`},method:"POST" as const,target:`/open-android-intelligence/v2/conversations/${f.cid}/generations/${accepted.generationId}/cancel`,idempotencyKey:requestId,body:{clientMessageId:`client_${requestId}`}});
+      expect((await f.core.handle(make("req_unsupported"))).data).toMatchObject({outcome:"UNSUPPORTED"});
+      f.manager.appendMessage(assistant("Legitimate between attempts"));
+      expect((await f.account.conversations.listMessages(f.cid)).messages).toEqual(expect.arrayContaining([expect.objectContaining({text:"Legitimate between attempts"})]));
+      expect((await f.core.handle(make("req_supported"))).data).toMatchObject({outcome:"CANCELLED"});
+      const rows=(await f.account.conversations.listMessages(f.cid)).messages as Array<{text:string}>;
+      expect(rows.some(row=>row.text==="Legitimate between attempts")).toBe(true);
+      expect(rows.some(row=>row.text==="Late in second cancellation")).toBe(false);
+      expect(f.account.events.readAfter(null).find(event=>event.eventType==="conversation.generation.cancelled")?.correlationId).toBe("cor_req_supported");
+    } finally {f.close();}
+  });
+
 });

@@ -943,7 +943,7 @@ export const createGatewayCore = (options = {}) => {
                             pendingDeviceRequests: pending.map(row => row.request_id), pairingGeneration: request.context.pairingGeneration, grantRevision: request.context.grantRevision });
                     }
                     if (request.method === "GET" && request.target.split("?")[0] === "/open-android-intelligence/v2/commands") {
-                        const languageCode = new URL(request.target, "https://gateway.local").searchParams.get("languageCode") ?? "en";
+                        const languageCode = new URL(request.target, "https://gateway.local").searchParams.get("languageCode")?.trim() || "en";
                         const commands = commandCatalogProvider ? await commandCatalogProvider() : [];
                         return success(request, commandCatalog(languageCode, commands));
                     }

@@ -2,7 +2,7 @@ import { ConversationWorkflow } from "./conversation-workflow.js";
 import { HistoryMedia } from "./history-media.js";
 import { randomUUID, createHash } from "node:crypto";
 import type { HostSessionBinding } from "../host/host-session.js";
-import { nativeHistoryStamp, readNativeHistory, readNativeHistorySnapshot, nativeAssistantSnapshot } from "../host/native-history.js";
+import { nativeHistoryStamp, readNativeHistory, nativeHistoryWatermark, nativeAssistantSnapshot, type NativeHistoryWatermark } from "../host/native-history.js";
 
 import { AttachmentStore } from "./attachment-store.js";
 import type { GatewayAccountStore } from "./account-store.js";
@@ -44,7 +44,7 @@ export type GatewayMessage = Readonly<{
 
 type NativeCancellationBoundary = {
   conversationId:string;generationId:string;storePath:string;sessionKey:string;sessionId:string;
-  visibleAssistantIds:string[];closed:boolean;suppressedNativeIds?:string[];
+  visibleAssistantIds:string[];closed:boolean;suppressedNativeIds?:string[];watermark?:NativeHistoryWatermark;closedWatermark?:NativeHistoryWatermark;
 };
 
 export class ConversationPort {
@@ -63,28 +63,53 @@ export class ConversationPort {
       .filter(({boundary})=>boundary.conversationId===conversationId);
   }
 
+  private cancellationActive(generationId:string):boolean {
+    const state=this.workflow.get<{state:string}>(`generation:${generationId}`)?.state;
+    return state==="cancelled" || ((state==="unknown" || state==="running") && !!this.workflow.get(`generation-cancel-request:${generationId}`));
+  }
+
+  checkpointHostHistory(conversationId:string):void {
+    // Optional bookkeeping must never prevent dispatch or abort.
+    try {
+      const binding=this.workflow.get<HostSessionBinding>(`host-session:${conversationId}`);
+      if (!binding) return;
+      const watermark=nativeHistoryWatermark(binding);
+      if (watermark) this.workflow.put(`native-checkpoint:${conversationId}`,{...binding,watermark});
+    } catch { /* Keep the last trusted checkpoint. */ }
+  }
+
   async beginHostCancellation(conversationId:string,generationId:string):Promise<void> {
     const key=`native-cancellation:${conversationId}:${generationId}`;
     if (this.workflow.get(key)) return;
     const binding=this.workflow.get<HostSessionBinding>(`host-session:${conversationId}`);
     if (!binding) return;
-    const snapshot=await readNativeHistorySnapshot(binding);
-    if (!snapshot.sessionId) return;
+    let watermark:NativeHistoryWatermark|undefined;
+    try { watermark=nativeHistoryWatermark(binding); } catch { /* Fall back to the last pre-abort checkpoint. */ }
+    if (!watermark) {
+      const checkpoint=this.workflow.get<HostSessionBinding & {watermark:NativeHistoryWatermark}>(`native-checkpoint:${conversationId}`);
+      if (checkpoint?.storePath===binding.storePath && checkpoint.sessionKey===binding.sessionKey) watermark=checkpoint.watermark;
+    }
+    if (!watermark) return;
     this.workflow.put(key,{conversationId,generationId,storePath:binding.storePath,sessionKey:binding.sessionKey,
-      sessionId:snapshot.sessionId,visibleAssistantIds:snapshot.messages.filter(row=>row.sender==="assistant").map(row=>row.nativeId),closed:false} satisfies NativeCancellationBoundary);
+      sessionId:watermark.sessionId,watermark,visibleAssistantIds:[],closed:false} satisfies NativeCancellationBoundary);
   }
 
   beginHostTurn(conversationId:string,generationId?:string):void {
+    this.checkpointHostHistory(conversationId);
     const pending=this.nativeCancellations(conversationId).filter(({boundary})=>!boundary.closed && boundary.generationId!==generationId
-      && this.workflow.get<{state:string}>(`generation:${boundary.generationId}`)?.state==="cancelled");
+      && this.cancellationActive(boundary.generationId));
     if (!pending.length) return;
     const binding=this.workflow.get<HostSessionBinding>(`host-session:${conversationId}`);
     if (!binding) return;
-    const snapshot=nativeAssistantSnapshot(binding);
+    const watermark=nativeHistoryWatermark(binding);
+    const legacy=pending.some(({boundary})=>!boundary.watermark) ? nativeAssistantSnapshot(binding) : undefined;
     for (const {key,boundary} of pending) {
       if (boundary.storePath!==binding.storePath || boundary.sessionKey!==binding.sessionKey) continue;
-      const visible=new Set(boundary.visibleAssistantIds);
-      boundary.suppressedNativeIds=snapshot.assistantIds.filter(nativeId=>nativeId.startsWith(`${boundary.sessionId}:`) && !visible.has(nativeId));
+      if (boundary.watermark) boundary.closedWatermark=watermark;
+      else {
+        const visible=new Set(boundary.visibleAssistantIds);
+        boundary.suppressedNativeIds=(legacy?.assistantIds ?? []).filter(nativeId=>nativeId.startsWith(`${boundary.sessionId}:`) && !visible.has(nativeId));
+      }
       boundary.closed=true;
       this.workflow.put(key,boundary);
     }
@@ -136,12 +161,13 @@ export class ConversationPort {
       const suppressed=new Set<string>();
       for (const {boundary} of this.nativeCancellations(conversationId)) {
         if (boundary.storePath!==trusted.storePath || boundary.sessionKey!==trusted.sessionKey
-          || this.workflow.get<{state:string}>(`generation:${boundary.generationId}`)?.state!=="cancelled") continue;
-        if (boundary.closed) for (const nativeId of boundary.suppressedNativeIds ?? []) suppressed.add(nativeId);
+          || !this.cancellationActive(boundary.generationId)) continue;
+        if (boundary.closed && !boundary.watermark) for (const nativeId of boundary.suppressedNativeIds ?? []) suppressed.add(nativeId);
         else {
           const visible=new Set(boundary.visibleAssistantIds);
           for (const row of history) if (row.sender==="assistant" && row.nativeId.startsWith(`${boundary.sessionId}:`)
-            && !visible.has(row.nativeId)) suppressed.add(row.nativeId);
+            && (boundary.watermark ? row.nativePosition?.fileId===boundary.watermark.fileId && row.nativePosition.byteEnd>boundary.watermark.byteLength
+              && (!boundary.closedWatermark || boundary.closedWatermark.fileId!==row.nativePosition.fileId || row.nativePosition.byteEnd<=boundary.closedWatermark.byteLength) : !visible.has(row.nativeId))) suppressed.add(row.nativeId);
         }
       }
       for (const row of history) {
