@@ -279,7 +279,10 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
                 const generation = account.conversations.workflow.get(`generation:${generationId}`);
                 if (generation?.state === "completed" || generation?.state === "failed")
                     return "ALREADY_COMPLETED";
-                await account.conversations.beginHostCancellation(conversationId, generationId);
+                try {
+                    await account.conversations.beginHostCancellation(conversationId, generationId);
+                }
+                catch { /* History bookkeeping must never block the real abort signal. */ }
                 const current = account.conversations.workflow.get(`generation:${generationId}`);
                 if (current?.state === "completed" || current?.state === "failed")
                     return "ALREADY_COMPLETED";
