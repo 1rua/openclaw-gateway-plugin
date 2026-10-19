@@ -1,6 +1,6 @@
 {
   "name": "@open-android-intelligence/openclaw",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Open Android Intelligence Gateway plugin for OpenClaw",
   "license": "MIT",
   "type": "module",

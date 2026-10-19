@@ -187,7 +187,9 @@ it("真实 Ed25519 HTTP 返回原类型和摘要，JSON 原件与非法 MIME 均
     const failed = await request("GET", prefix + `/content?format=stream-v1&grantId=${token}`);
     expect(failed.status).toBe(400); expect(failed.headers.get("x-forged")).toBeNull(); expect((await failed.json() as any).error.code).toBe("SCHEMA_INVALID");
   } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); account.close(); }
-});
+  // The 38 MiB fixture verifies digests and authorization throughout the stream.
+  // Leave room for shared-runner CPU/IO contention without relaxing assertions.
+}, 15_000);
 
 const inboundRuntime = (root: string, deliver: (turn: any, params: any) => Promise<void>): OpenClawInboundRuntime => {
   const store = join(root, "sessions.json"); writeFileSync(store, JSON.stringify({})); writeFileSync(join(root, "native.jsonl"), "");

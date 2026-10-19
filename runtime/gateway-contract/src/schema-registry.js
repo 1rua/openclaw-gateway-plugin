@@ -34,6 +34,10 @@ const definitions = {
     "session.pairing": [sessionDocument, "pairing"],
     "session.pairingSummary": [sessionDocument, "pairingSummary"],
     "conversation.create": [conversationDocument, "create"],
+    "conversation.organization": [conversationDocument, "organization"],
+    "conversation.organizationReplace": [conversationDocument, "organizationReplace"],
+    "conversation.archive": [conversationDocument, "archive"],
+    "conversation.listPage": [conversationDocument, "listPage"],
     // The catalog and mirror-sync request shapes live in conversation.schema.json.
     // command-catalog.schema.json and conversation-snapshot.schema.json describe the
     // discovery response and the snapshot response, which are not GatewaySchemaName

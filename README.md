@@ -4,14 +4,14 @@ OpenClaw 原生 Gateway 插件，将 Android 设备连接到 Open Android Intell
 
 ## 安装
 
-本轮仓库版本为 `1.0.2`。固定安装入口以发布记录为准；请将下方占位符替换为已经通过
-CI 的完整 40 位插件提交 SHA，发布记录提供对应标签后也可按标签安装。
+本轮仓库版本为 `1.1.0`，支持 OpenClaw `2026.7.1-2`。请从本版本通过 CI 的 PR 或发布记录
+取得完整 40 位插件提交 SHA，替换下方占位符；发布记录提供对应标签后也可按标签安装。
 
 ```bash
 openclaw plugins install git:github.com/1rua/openclaw-gateway-plugin@<40位插件提交SHA>
 ```
 
-首次启用后检查插件注册状态：
+已安装旧固定提交时，在相同命令末尾加 `--force` 更新，并重启宿主。启用后检查插件注册状态：
 
 ```bash
 openclaw plugins inspect open-android-intelligence-gateway --runtime --json
@@ -23,14 +23,33 @@ openclaw plugins inspect open-android-intelligence-gateway --runtime --json
 
 `contract-pin.json` 锁定主仓中唯一维护的 Gateway Protocol 契约提交。仓库内的 `gateway-contract/` 是由该固定提交生成的运行与一致性快照；CI 会逐文件比较 pin 对应的契约与快照。插件安装后使用包内契约，不会在 Gateway 启动时联网下载。
 
-`1.0.2` 固定主仓提交 `851abc44e7ebf5a5aa0ea7ffe311d59be1538058`，CORE 为
-`sha256:63223ba149355032800eeae8a9f0827d542bbde7ca9e4eeb19f93df30e7febde`。
+`1.1.0` 固定主仓提交 `f0b3f1bd4f6f3301b820e38c9f3241bcac05cd10`，CORE 为
+`sha256:032f580246eb4a214624bded717819b4d5a76191208207edc9e5a4607f5c4d23`。
+配套 Android APK 应来自该主仓提交，或使用相同契约摘要的更新提交；对应 APK 构建记录见
+[主仓 PR #14](https://github.com/1rua/open-android-intelligence/pull/14)。旧版 App 与插件需配套升级，
+重新连接后才会协商新能力；仅更新 APK 或仅更新插件会得到 `PROTOCOL_INCOMPATIBLE`。
+
+## 会话管理
+
+原生宿主生命周期 API 可用时，插件协商 `conversation-management-v1`：
+
+- 分页返回该 Gateway 账号已有的可信原生会话，包括归档会话，并在列表变化后使旧游标失效。
+- 归档、恢复和删除通过 OpenClaw 原生会话 API 执行；有排队或运行消息时拒绝管理操作。
+- 文件夹、归属和自定义顺序保存在 Gateway 账号中，供同账号的多台手机共享，并使用版本冲突检查。
+- 未知管理结果保留原设备与请求 ID，重启后同 ID 重试可恢复回执；删除与待确认屏障阻止旧历史或重新绑定复活会话。
+
+升级时依据可信原生历史、匹配 `storePath/sessionKey` 的检查点及交付收据识别已建立的会话，
+合法切换到尚未建立的新路由会隔离旧证据。插件只管理该账号已有绑定，不导入其它本地聊天；
+删除后的 transcript 文件保留由宿主原生策略决定。
+
+## 附件与历史
+
 用户与 Agent 的附件在发出事件或 ACK 前采用到宿主 `history-media/open-android-intelligence/`
 专属原件区，处于 OpenClaw `media/` 缓存清理范围之外。新客户端使用参与签名的查询参数
 `format=stream-v1` 按块读取，旧无格式请求保留有界 JSON/Base64 外壳；外壳兼容仅适用于相同
 核心摘要，不能让旧 CORE 的 App 登录本轮插件。
 
-若核心 Schema 变化，需先更新本仓契约 pin 与生成快照，再发布插件和 Android 客户端的兼容版本。只升级其中一端会在协议协商时得到 `PROTOCOL_INCOMPATIBLE`。
+若核心 Schema 变化，需先更新本仓契约 pin 与生成快照，再发布插件和 Android 客户端的兼容版本。
 
 ## 开发与验证
 
@@ -48,7 +67,7 @@ npm run plugin:install-smoke
 npm run plugin:inspect-smoke
 ```
 
-`runtime/` 保存固定 Git 安装使用的 JavaScript 入口。`npm run build` 从 TypeScript 源码重新生成该目录，并恢复 Schema 的发布原始字节以保持核心摘要一致；CI 会检查生成结果与已跟踪内容一致。
+`runtime/` 保存固定 Git 安装使用的 JavaScript 入口。`npm run build` 从 TypeScript 源码重新生成该目录，并恢复 Schema、共享向量和分派索引的发布原始字节以保持契约一致；CI 会检查生成结果与已跟踪内容一致，并拒绝未跟踪的 runtime 文件。
 
 CI 从 `contract-pin.json` 指向的主仓提交生成契约文件，再将生成结果与包内 `gateway-contract/` 逐项比较。手动生成时，输出目录必须尚不存在：
 

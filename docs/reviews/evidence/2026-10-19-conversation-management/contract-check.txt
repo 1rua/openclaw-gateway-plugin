@@ -1,0 +1,5 @@
+
+> @open-android-intelligence/openclaw@1.1.0 contract:check
+> python3 tools/check-contract-snapshot.py
+
+契约快照通过：f0b3f1bd4f6f3301b820e38c9f3241bcac05cd10

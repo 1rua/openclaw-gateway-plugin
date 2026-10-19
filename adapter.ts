@@ -90,6 +90,7 @@ export const OPENCLAW_PLUGIN_MANIFEST = Object.freeze({
      */
     approvalCards: false,
     conversationRead: true,
+    conversationManagement: true,
     attachmentPolicy: true,
     /** Account-isolated replayable Server-Sent Events on the authenticated /events route. */
     sse: true,

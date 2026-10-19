@@ -1,0 +1,67 @@
+{
+  "formatVersion": "1.0.0",
+  "protocolVersion": "2.1",
+  "vectorSet": "attachments",
+  "cases": [
+    {
+      "id": "attachment-schema-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "attachment.create",
+        "value": {
+          "clientAttachmentId": "attachment_1",
+          "filename": "report.pdf",
+          "mediaType": "application/pdf",
+          "sizeBytes": 102400,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "attachment-schema-invalid-digest-case",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "attachment.create",
+        "value": {
+          "clientAttachmentId": "attachment_1",
+          "filename": "report.pdf",
+          "mediaType": "application/pdf",
+          "sizeBytes": 102400,
+          "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "attachment-transition-begin-upload",
+      "operation": "attachment.transition",
+      "input": {
+        "current": "created",
+        "event": "begin_upload"
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "nextState": "uploading" }
+      }
+    },
+    {
+      "id": "attachment-transition-invalid-verify-before-upload",
+      "operation": "attachment.transition",
+      "input": {
+        "current": "created",
+        "event": "verify"
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "INVALID_STATE_TRANSITION"
+      }
+    }
+  ]
+}

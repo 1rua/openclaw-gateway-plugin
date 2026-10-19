@@ -131,6 +131,7 @@ export type GatewayCore = Readonly<{
   setCommandCatalogProvider?: (provider: () => Promise<readonly Record<string, unknown>[]>) => void;
   setHostConversationCreator?: (create: (accountId:string,conversationId:string,title:string|null)=>Promise<HostSessionBinding>) => void;
   setGenerationCanceller?: (cancel: GenerationCanceller) => void;
+  setHostConversationManager?: (manage:(accountId:string,conversationId:string,operation:"archive"|"delete",archived?:boolean)=>Promise<void>)=>void;
   setHostSessionResolver?: (resolver:(accountId:string,conversationId:string)=>HostSessionBinding|undefined|Promise<HostSessionBinding|undefined>)=>void;
   handle: (request: VerifiedGatewayRequest) => Promise<GatewayResponse>;
   uploadAttachmentContent?: (
@@ -299,6 +300,10 @@ const protocolErrorCodes = new Set([
   "PAIRING_GENERATION_STALE",
   "GRANT_STALE",
   "IDEMPOTENCY_CONFLICT",
+  "CONVERSATION_NOT_FOUND",
+  "CONVERSATION_ARCHIVED",
+  "CONVERSATION_BUSY",
+  "ORGANIZATION_CONFLICT",
   "OUTCOME_UNKNOWN",
   "ATTACHMENT_DIGEST_MISMATCH",
   "ATTACHMENT_STORAGE_UNAVAILABLE",
@@ -331,6 +336,10 @@ const persistableErrorCodes = new Set([
   "PAIRING_GENERATION_STALE",
   "GRANT_STALE",
   "IDEMPOTENCY_CONFLICT",
+  "CONVERSATION_NOT_FOUND",
+  "CONVERSATION_ARCHIVED",
+  "CONVERSATION_BUSY",
+  "ORGANIZATION_CONFLICT",
   "OUTCOME_UNKNOWN",
   "ATTACHMENT_DIGEST_MISMATCH",
   "ATTACHMENT_EXPIRED",
@@ -404,6 +413,9 @@ const runIdempotent = (
       if (replayError !== undefined) return failure(request, replayError);
       return account.store.openJson(String(existing.outcome_json), `idempotency:${request.context!.deviceId}:${request.context!.requestId}`) as GatewayResponse;
     }
+    const reservation=account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?")
+      .get(`native-operation:${request.context!.deviceId}:${request.context!.requestId}`) as {value:string}|undefined;
+    if(reservation && reservation.value!==inputHash) return failure(request,"IDEMPOTENCY_CONFLICT");
 
     let response: GatewayResponse;
     try {
@@ -544,6 +556,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
   const tlsSpkiSha256 = options.tlsSpkiSha256 ?? process.env["OPEN_ANDROID_INTELLIGENCE_GATEWAY_TLS_SPKI_SHA256"] ?? null;
   if (tlsSpkiSha256 !== null && (!/^sha256:[a-f0-9]{64}$/.test(tlsSpkiSha256) || tlsSpkiSha256 === `sha256:${"0".repeat(64)}`)) throw new Error("GATEWAY_TLS_IDENTITY_INVALID");
   let commandCatalogProvider: (()=>Promise<readonly Record<string,unknown>[]>) | undefined;
+  let hostConversationManager:Parameters<NonNullable<GatewayCore["setHostConversationManager"]>>[0]|undefined;
   let hostConversationCreator: ((accountId:string,conversationId:string,title:string|null)=>Promise<HostSessionBinding>) | undefined;
   let generationCanceller: GenerationCanceller | undefined;
   let hostSessionResolver:Parameters<NonNullable<GatewayCore['setHostSessionResolver']>>[0]|undefined;
@@ -610,7 +623,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
     }
     const conversationUi = Array.isArray(requested["conversationUi"])
       ? (requested["conversationUi"] as readonly unknown[]).filter(
-          (item): item is string => typeof item === "string" && (SUPPORTED_CONVERSATION_UI.includes(item) || (item === "generation-cancel-v1" && generationCanceller !== undefined)),
+          (item): item is string => typeof item === "string" && (SUPPORTED_CONVERSATION_UI.includes(item) || (item === "generation-cancel-v1" && generationCanceller !== undefined) || (item === "conversation-management-v1" && hostConversationManager !== undefined)),
         )
       : [];
     const features: Record<string, unknown> = { auth, ...REQUIRED_FEATURES };
@@ -947,11 +960,13 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
       } catch { return false; }
       finally { database?.close(); }
     };
+  const activeManagement=new Set<string>();
   const online = new Map<string,{context:VerifiedRequestContext;count:number}>();
   return Object.freeze({
     gatewayIdentity: () => ({deploymentId:deploymentIdOf(resolveRoot()),tlsSpkiSha256}),
     setCommandCatalogProvider: (provider):void => { commandCatalogProvider=provider; },
     setHostConversationCreator: (create):void => { hostConversationCreator=create; },
+    setHostConversationManager: (manage):void => { hostConversationManager=manage; },
     setGenerationCanceller: (cancel:GenerationCanceller):void => { generationCanceller=cancel; },
     setHostSessionResolver: (resolver:NonNullable<typeof hostSessionResolver>):void=> {hostSessionResolver=resolver;},
     openGatewayAccount: async (accountId: string): Promise<GatewayAccount> =>
@@ -1035,6 +1050,57 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
             const commands = commandCatalogProvider ? await commandCatalogProvider() : [];
             return success(request, commandCatalog(languageCode, commands));
           }
+          const managementPath=request.target.split("?")[0]!;
+          if (request.method==="GET" && managementPath==="/open-android-intelligence/v2/conversations" && hostConversationManager) {
+            const query=new URL(request.target,"https://gateway.invalid").searchParams;
+            if([...query.keys()].some(key=>!["cursor","limit"].includes(key)) || query.getAll("cursor").length>1 || query.getAll("limit").length>1) throw new Error("SCHEMA_INVALID");
+            return success(request,account.conversations.management.page(query.get("cursor") ?? undefined,query.has("limit") ? Number(query.get("limit")) : undefined));
+          }
+          if (managementPath==="/open-android-intelligence/v2/conversation-organization") {
+            if(!hostConversationManager) throw new Error("HOST_INCOMPATIBLE");
+            if(request.target!==managementPath) throw new Error("SCHEMA_INVALID");
+            if(request.method==="GET") return success(request,account.conversations.management.organization());
+            if(request.method==="PUT") {
+              assertSchema("conversation.organizationReplace",request.body);
+              return runIdempotent(account,request,()=>success(request,account.conversations.management.replace(request.body as Parameters<typeof account.conversations.management.replace>[0],request.context!.correlationId)));
+            }
+          }
+          const managedConversation=managementPath.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)$/);
+          if(managedConversation && (request.method==="DELETE" || request.method==="PATCH" && typeof request.body==="object" && request.body!==null && "archived" in request.body)) {
+            if(!hostConversationManager) throw new Error("HOST_INCOMPATIBLE");
+            if(request.target!==managementPath) throw new Error("SCHEMA_INVALID");
+            const body=request.method==="PATCH" ? bodyRecord(request.body) : {};
+            if(request.method==="PATCH") assertSchema("conversation.archive",body);
+            else if(request.body!==undefined) throw new Error("SCHEMA_INVALID");
+            const context=request.context!;
+            const prior=account.store.database.prepare("SELECT 1 FROM idempotency_ledger WHERE device_id=? AND request_id=?").get(context.deviceId,context.requestId);
+            if(prior) return runIdempotent(account,request,()=>{throw new Error("OUTCOME_UNKNOWN");});
+            if(request.idempotencyKey!==context.requestId) throw new Error("IDEMPOTENCY_CONFLICT");
+            const id=managedConversation[1]!, operation=request.method==="DELETE" ? "delete" : "archive";
+            const requestKey=`${context.deviceId}:${context.requestId}`,reservationKey=`native-operation:${requestKey}`;
+            const inputHash=createHash("sha256").update(canonicalJson({method:request.method,target:request.target,body:request.body}),"utf8").digest("hex");
+            const reserved=account.store.database.prepare("SELECT value FROM account_metadata WHERE key=?").get(reservationKey) as {value:string}|undefined;
+            if(reserved && reserved.value!==inputHash) throw new Error("IDEMPOTENCY_CONFLICT");
+            const management=account.conversations.management;
+            const key=`${context.accountId}:${id}`;
+            if(activeManagement.has(key)) throw new Error("CONVERSATION_BUSY");
+            activeManagement.add(key);
+            try {
+              management.begin(id,requestKey,operation,body.archived as boolean|undefined);
+              account.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)").run(reservationKey,inputHash);
+              await hostConversationManager(context.accountId,id,operation,body.archived as boolean|undefined);
+              return runIdempotent(account,request,()=>success(request,management.commit(id,operation,body.archived as boolean|undefined,context.correlationId,request.now)));
+            } catch(error) {
+              const code=(error as Error).message;
+              if(["CONVERSATION_BUSY","HOST_INCOMPATIBLE"].includes(code) && management.state(id).pendingRequestId===requestKey) {
+                management.abort(id,requestKey);
+                account.store.database.prepare("DELETE FROM account_metadata WHERE key=?").run(reservationKey);
+              }
+              if(["CONVERSATION_BUSY","HOST_INCOMPATIBLE","CONVERSATION_NOT_FOUND","IDEMPOTENCY_CONFLICT","OUTCOME_UNKNOWN"].includes(code)) throw error;
+              throw new Error("OUTCOME_UNKNOWN");
+            }
+            finally {activeManagement.delete(key);}
+          }
           if (request.method === "POST" && request.target === "/open-android-intelligence/v2/conversations" && hostConversationCreator) {
             assertSchema("conversation.create", request.body);
             const context = request.context!;
@@ -1052,6 +1118,7 @@ export const createGatewayCore = (options: GatewayCoreOptions = {}): GatewayCore
               ...(typeof body.title === "string" ? {title:body.title} : {}), correlationId:context.correlationId });
             const binding = await hostConversationCreator(context.accountId, conversation.conversationId, conversation.title);
             account.conversations.bindHostSession(conversation.conversationId, binding);
+            account.conversations.management.rememberNativeSession(conversation.conversationId,binding);
             return runIdempotent(account,request,()=>success(request,{conversation}));
           }
           const currentGeneration=request.target.match(/^\/open-android-intelligence\/v2\/conversations\/([^/]+)\/generations\/current$/);

@@ -911,6 +911,52 @@
           }
         }
       }
+    },
+    {
+      "key": {
+        "kind": "event",
+        "eventType": "conversation.updated",
+        "schemaSha256": "sha256:87ea658d8628e63e45b3ec08160874f1e5689feac62ca4866ad1ee205d0dbdfb"
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "conversationId"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "kind": "event",
+        "eventType": "conversation.organization.updated",
+        "schemaSha256": "sha256:34491deb9354b913572df9e2418bba77c104d35cc8320b978b5eefd471787c8f"
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
     }
   ],
   "bindings": [
@@ -1026,6 +1072,20 @@
         "eventType": "conversation.generation.cancelled"
       },
       "schemaSha256": "sha256:331d2f051149d5f1cff4794de468fc07ce1ce727c9a49bf688f3cc21d8b68f1d"
+    },
+    {
+      "key": {
+        "kind": "event",
+        "eventType": "conversation.updated"
+      },
+      "schemaSha256": "sha256:87ea658d8628e63e45b3ec08160874f1e5689feac62ca4866ad1ee205d0dbdfb"
+    },
+    {
+      "key": {
+        "kind": "event",
+        "eventType": "conversation.organization.updated"
+      },
+      "schemaSha256": "sha256:34491deb9354b913572df9e2418bba77c104d35cc8320b978b5eefd471787c8f"
     }
   ]
 }

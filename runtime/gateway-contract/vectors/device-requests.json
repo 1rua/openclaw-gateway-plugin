@@ -1,0 +1,182 @@
+{
+  "formatVersion": "1.0.0",
+  "protocolVersion": "2.1",
+  "vectorSet": "device-requests",
+  "cases": [
+    {
+      "id": "device-result-valid-succeeded-with-data",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "device.request.result",
+        "value": { "outcome": "succeeded", "data": { "threads": 2 } }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "device-result-valid-outcome-unknown-without-data",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "device.request.result",
+        "value": { "outcome": "outcome_unknown" }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "device-result-unknown-outcome",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "device.request.result",
+        "value": { "outcome": "ok" }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "device-result-outcome-unknown-with-data",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "device.request.result",
+        "value": { "outcome": "outcome_unknown", "data": {} }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "device-result-request-valid",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "device.request.resultRequest",
+        "value": {
+          "claimId": "claim_1",
+          "grantRevision": 7,
+          "result": { "outcome": "succeeded" }
+        }
+      },
+      "expected": { "outcome": "value", "value": { "valid": true } }
+    },
+    {
+      "id": "device-result-request-unknown-field",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "device.request.resultRequest",
+        "value": {
+          "claimId": "claim_1",
+          "grantRevision": 7,
+          "result": { "outcome": "succeeded" },
+          "deviceId": "device_1"
+        }
+      },
+      "expected": { "outcome": "error", "code": "SCHEMA_INVALID" }
+    },
+    {
+      "id": "device-dispatch-sms-query-valid",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "device.request" },
+        "value": {
+          "requestId": "device_request_1",
+          "capability": { "id": "org.openandroidintelligence.sms.query", "version": "1.0.0" },
+          "provider": {
+            "pluginId": "org.openandroidintelligence.sms",
+            "authorKeyId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "parameters": { "query": "from:alice" },
+          "risk": "read",
+          "grantRevision": 7,
+          "createdAt": "2026-08-27T00:00:00.000Z",
+          "expiresAt": "2026-08-28T00:00:00.000Z",
+          "requiresForegroundConfirmation": false
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "valid": true }
+      }
+    },
+    {
+      "id": "device-dispatch-sms-query-invalid-parameters",
+      "operation": "schema.validate_dispatched",
+      "input": {
+        "fixtureBindingSetId": "gateway-core-fixtures-v1",
+        "dispatch": { "kind": "device.request" },
+        "value": {
+          "requestId": "device_request_1",
+          "capability": { "id": "org.openandroidintelligence.sms.query", "version": "1.0.0" },
+          "provider": {
+            "pluginId": "org.openandroidintelligence.sms",
+            "authorKeyId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "parameters": { "query": "" },
+          "risk": "read",
+          "grantRevision": 7,
+          "createdAt": "2026-08-27T00:00:00.000Z",
+          "expiresAt": "2026-08-28T00:00:00.000Z",
+          "requiresForegroundConfirmation": false
+        }
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "device-transition-claim-pending",
+      "operation": "device.transition",
+      "input": {
+        "current": "pending",
+        "event": "claim"
+      },
+      "expected": {
+        "outcome": "value",
+        "value": { "nextState": "claimed" }
+      }
+    },
+    {
+      "id": "device-transition-invalid-result-before-claim",
+      "operation": "device.transition",
+      "input": {
+        "current": "pending",
+        "event": "result_succeeded"
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "INVALID_STATE_TRANSITION"
+      }
+    },
+    {
+      "id": "device-queue-read",
+      "operation": "device.maximum_queue_seconds",
+      "input": { "risk": "read" },
+      "expected": {
+        "outcome": "value",
+        "value": { "seconds": 86400 }
+      }
+    },
+    {
+      "id": "device-queue-sync",
+      "operation": "device.maximum_queue_seconds",
+      "input": { "risk": "sync" },
+      "expected": {
+        "outcome": "value",
+        "value": { "seconds": 86400 }
+      }
+    },
+    {
+      "id": "device-queue-write",
+      "operation": "device.maximum_queue_seconds",
+      "input": { "risk": "write" },
+      "expected": {
+        "outcome": "value",
+        "value": { "seconds": 900 }
+      }
+    },
+    {
+      "id": "device-queue-high-privilege-ephemeral",
+      "operation": "device.maximum_queue_seconds",
+      "input": { "risk": "high-privilege-ephemeral" },
+      "expected": {
+        "outcome": "value",
+        "value": { "seconds": 0 }
+      }
+    }
+  ]
+}

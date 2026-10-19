@@ -1,0 +1,12 @@
+
+> @open-android-intelligence/openclaw@1.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /workspace/gateway-sync/openclaw
+
+
+ Test Files  37 passed (37)
+      Tests  208 passed (208)
+   Start at  18:28:37
+   Duration  78.32s (transform 1.59s, setup 0ms, import 37.65s, tests 35.74s, environment 3ms)

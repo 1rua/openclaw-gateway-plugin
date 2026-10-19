@@ -9,18 +9,28 @@ const target = join(root, "runtime", "gateway-contract");
 const staging = join(root, ".contract-staging");
 mkdirSync(staging, { recursive: true });
 const backup = mkdtempSync(join(staging, "runtime-schemas-"));
-const schemas = join(target, "schemas");
+const rawDirectories = ["schemas", "vectors"];
+const preparedDirectories = [];
 
 // tsc 会重排 JSON 空白；协议摘要必须继续使用发布的原始字节。
-if (existsSync(schemas)) renameSync(schemas, join(backup, "schemas"));
 try {
-  cpSync(join(source, "schemas"), schemas, { recursive: true });
+  for (const name of rawDirectories) {
+    const directory = join(target, name);
+    if (existsSync(directory)) renameSync(directory, join(backup, name));
+    preparedDirectories.push(name);
+  }
+  for (const name of rawDirectories) {
+    cpSync(join(source, name), join(target, name), { recursive: true });
+  }
   mkdirSync(target, { recursive: true });
   copyFileSync(join(source, "core-dispatched-schemas.json"), join(target, "core-dispatched-schemas.json"));
 } catch (error) {
   // 失败的新产物和旧产物均保留，不执行永久删除。
-  if (existsSync(schemas)) renameSync(schemas, join(backup, "failed-schemas"));
-  if (existsSync(join(backup, "schemas"))) renameSync(join(backup, "schemas"), schemas);
+  for (const name of preparedDirectories) {
+    const directory = join(target, name);
+    if (existsSync(directory)) renameSync(directory, join(backup, `failed-${name}`));
+    if (existsSync(join(backup, name))) renameSync(join(backup, name), directory);
+  }
   throw error;
 }
 

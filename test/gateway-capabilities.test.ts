@@ -402,6 +402,7 @@ describe("OpenClaw Gateway capabilities", () => {
     expect(manifest.securityBoundary.encryptionAtRest).toBe("account-scoped-aead-payloads-and-attachments");
     expect(manifest.securityBoundary.zeroRetention).toBe("not-implemented");
     expect(manifest.capabilities.sse).toBe(true);
+    expect(manifest.capabilities.conversationManagement).toBe(true);
     expect(manifest.securityBoundary.ed25519).toBe("gateway-owned-verifier");
     expect("zeroRetention" in manifest).toBe(false);
 
@@ -415,6 +416,7 @@ describe("OpenClaw Gateway capabilities", () => {
       [manifest.capabilities.sessionLogout, "/open-android-intelligence/v2/sessions/current"],
       [manifest.capabilities.commandCatalog, "/open-android-intelligence/v2/commands"],
       [manifest.capabilities.conversationRead, "/open-android-intelligence/v2/conversations"],
+      [manifest.capabilities.conversationManagement, "/open-android-intelligence/v2/conversation-organization"],
       [manifest.capabilities.attachmentPolicy, "/open-android-intelligence/v2/attachments"],
     ];
     // Approval cards need a live delivery channel this host does not have, so

@@ -1,7 +1,8 @@
+import { ConversationManagement } from "./conversation-management.js";
 import { ConversationWorkflow } from "./conversation-workflow.js";
 import { HistoryMedia } from "./history-media.js";
 import { randomUUID, createHash } from "node:crypto";
-import { nativeHistoryStamp, readNativeHistory, nativeHistoryWatermark, nativeAssistantSnapshot } from "../host/native-history.js";
+import { nativeHistoryStamp, readNativeHistory, nativeHistoryWatermark, nativeAssistantSnapshot, readNativeSessionState } from "../host/native-history.js";
 import { DEFAULT_ATTACHMENT_POLICY } from "./attachment-policy.js";
 export class ConversationPort {
     accountId;
@@ -11,12 +12,16 @@ export class ConversationPort {
     events;
     policy;
     workflow;
+    management;
     hostSessionResolver;
     setHostSessionResolver(resolver) { this.hostSessionResolver = resolver; }
     bindHostSession(conversationId, binding) {
-        this.get(conversationId);
-        this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)")
-            .run(`host-session:${conversationId}`, JSON.stringify(binding));
+        this.store.transaction(() => {
+            this.get(conversationId);
+            this.management.prepareNativeBinding(conversationId, binding);
+            this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)")
+                .run(`host-session:${conversationId}`, JSON.stringify(binding));
+        });
     }
     nativeCancellations(conversationId) {
         return this.store.database.prepare("SELECT key,value FROM account_metadata WHERE key LIKE ?").all(`native-cancellation:${conversationId}:%`)
@@ -33,6 +38,8 @@ export class ConversationPort {
             const binding = this.workflow.get(`host-session:${conversationId}`);
             if (!binding)
                 return;
+            if (readNativeSessionState(binding))
+                this.management.rememberNativeSession(conversationId, binding);
             const watermark = nativeHistoryWatermark(binding);
             if (watermark)
                 this.workflow.put(`native-checkpoint:${conversationId}`, { ...binding, watermark });
@@ -234,14 +241,16 @@ export class ConversationPort {
         this.events = events;
         this.policy = policy;
         this.workflow = new ConversationWorkflow(store, events);
+        this.management = new ConversationManagement(store, this, events);
     }
     list() {
         const rows = this.store.database
             .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations ORDER BY conversation_id")
             .all();
-        return rows.map((row) => this.mapConversation(row));
+        return rows.filter(row => !this.management.state(String(row.conversation_id)).deleted).map((row) => this.mapConversation(row));
     }
     get(conversationId) {
+        this.management.requireVisible(conversationId);
         const row = this.store.database
             .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations WHERE conversation_id = ?")
             .get(conversationId);
@@ -260,6 +269,7 @@ export class ConversationPort {
         const existing = this.store.database.prepare("SELECT * FROM conversations WHERE client_conversation_id=?").get(input.clientConversationId);
         if (existing) {
             const conversation = this.mapConversation(existing);
+            this.management.requireVisible(conversation.conversationId);
             if (conversation.title !== (input.title ?? null))
                 throw new Error("IDEMPOTENCY_CONFLICT");
             return conversation;
@@ -285,6 +295,7 @@ export class ConversationPort {
         });
     }
     acceptMessage(input) {
+        this.management.requireWritable(input.conversationId);
         return this.store.transaction(() => {
             const conversation = this.store.database
                 .prepare("SELECT conversation_id FROM conversations WHERE conversation_id = ?")
@@ -440,6 +451,7 @@ export class ConversationPort {
                     this.updateMessageStatus(mid, "delivered", null, correlationId, now);
             for (const attachmentId of message.attachmentIds)
                 this.attachments.markDelivered(attachmentId, now);
+            this.checkpointHostHistory(message.conversationId);
             return message;
         });
     }
@@ -569,6 +581,7 @@ export class ConversationPort {
      * `update_title` result field for field.
      */
     updateTitle(input) {
+        this.management.requireVisible(input.conversationId);
         return this.store.transaction(() => {
             const row = this.store.database
                 .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations WHERE conversation_id = ?")
@@ -578,6 +591,7 @@ export class ConversationPort {
             this.store.database
                 .prepare("UPDATE conversations SET title = ? WHERE conversation_id = ?")
                 .run(input.title, input.conversationId);
+            this.management.touch(input.conversationId, input.now);
             this.audit.append({
                 eventType: "conversation.title.updated",
                 actor: { accountId: this.accountId },

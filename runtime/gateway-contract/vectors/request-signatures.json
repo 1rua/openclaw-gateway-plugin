@@ -1,0 +1,92 @@
+{
+  "formatVersion": "1.0.0",
+  "protocolVersion": "2.1",
+  "vectorSet": "request-signatures",
+  "cases": [
+    {
+      "id": "request-target-sort",
+      "operation": "request.target",
+      "input": {
+        "target": "/open-android-intelligence/v2/events?z=last&cursor=evt_1"
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "canonicalTarget": "/open-android-intelligence/v2/events?cursor=evt_1&z=last"
+        }
+      }
+    },
+    {
+      "id": "request-target-invalid-query",
+      "operation": "request.target",
+      "input": {
+        "target": "/open-android-intelligence/v2/events?"
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "request-signature-oracle",
+      "operation": "request.signature",
+      "input": {
+        "method": "GET",
+        "target": "/open-android-intelligence/v2/events?cursor=evt_1&z=last",
+        "accountId": "acct_1",
+        "deviceId": "dev_1",
+        "sessionId": "sess_1",
+        "requestId": "req_1",
+        "timestamp": "2026-08-27T00:00:00.000Z",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+        "bodyHex": ""
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "preimageHex": "4f50454e2d414e44524f49442d494e54454c4c4947454e43452d524551554553542d56320a4745540a2f6f70656e2d616e64726f69642d696e74656c6c6967656e63652f76322f6576656e74733f637572736f723d6576745f31267a3d6c6173740a616363745f310a6465765f310a736573735f310a7265715f310a323032362d30382d32375430303a30303a30302e3030305a0a414141414141414141414141414141414141414141410a65336230633434323938666331633134396166626634633839393666623932343237616534316534363439623933346361343935393931623738353262383535"
+        }
+      }
+    },
+    {
+      "id": "request-signature-nonempty-body",
+      "operation": "request.signature",
+      "input": {
+        "method": "POST",
+        "target": "/open-android-intelligence/v2/conversations",
+        "accountId": "acct_1",
+        "deviceId": "dev_1",
+        "sessionId": "sess_1",
+        "requestId": "req_nonempty_body",
+        "timestamp": "2026-08-27T00:00:00.000Z",
+        "nonce": "AQEBAQEBAQEBAQEBAQEBAQ",
+        "bodyHex": "007b7d2b25ff80c3a9"
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "preimageHex": "4f50454e2d414e44524f49442d494e54454c4c4947454e43452d524551554553542d56320a504f53540a2f6f70656e2d616e64726f69642d696e74656c6c6967656e63652f76322f636f6e766572736174696f6e730a616363745f310a6465765f310a736573735f310a7265715f6e6f6e656d7074795f626f64790a323032362d30382d32375430303a30303a30302e3030305a0a415145424151454241514542415145424151454241510a30613436306661613832396233623331666230383666386464396136613438303734356262376235663930353563343732386437316639663233356433333162"
+        }
+      }
+    },
+    {
+      "id": "request-signature-noncanonical",
+      "operation": "request.signature",
+      "input": {
+        "method": "GET",
+        "target": "/open-android-intelligence/v2/events?z=last&cursor=evt_1",
+        "accountId": "acct_1",
+        "deviceId": "dev_1",
+        "sessionId": "sess_1",
+        "requestId": "req_1",
+        "timestamp": "2026-08-27T00:00:00.000Z",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+        "bodyHex": ""
+      },
+      "expected": {
+        "outcome": "error",
+        "code": "NON_CANONICAL_TARGET"
+      }
+    }
+  ]
+}
