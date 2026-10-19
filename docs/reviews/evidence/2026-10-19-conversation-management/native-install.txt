@@ -1,0 +1,5 @@
+Plugin manifest id "open-android-intelligence-gateway" differs from npm package name "@open-android-intelligence/openclaw"; using manifest id as the config key.
+Installing to /workspace/gateway-sync/tmp/openclaw/smoke-state/extensions/open-android-intelligence-gateway…
+Linked peerDependency "openclaw" -> /workspace/gateway-sync/openclaw/node_modules/openclaw
+Installed plugin: open-android-intelligence-gateway
+Restart the gateway to load plugins.

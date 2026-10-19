@@ -1,8 +1,9 @@
+import { ConversationManagement } from "./conversation-management.js";
 import { ConversationWorkflow } from "./conversation-workflow.js";
 import { HistoryMedia } from "./history-media.js";
 import { randomUUID, createHash } from "node:crypto";
 import type { HostSessionBinding } from "../host/host-session.js";
-import { nativeHistoryStamp, readNativeHistory, nativeHistoryWatermark, nativeAssistantSnapshot, type NativeHistoryWatermark } from "../host/native-history.js";
+import { nativeHistoryStamp, readNativeHistory, nativeHistoryWatermark, nativeAssistantSnapshot, readNativeSessionState, type NativeHistoryWatermark } from "../host/native-history.js";
 
 import { AttachmentStore } from "./attachment-store.js";
 import type { GatewayAccountStore } from "./account-store.js";
@@ -49,12 +50,16 @@ type NativeCancellationBoundary = {
 
 export class ConversationPort {
   readonly workflow: ConversationWorkflow;
+  readonly management: ConversationManagement;
   private hostSessionResolver?: (accountId:string,conversationId:string)=>HostSessionBinding|undefined|Promise<HostSessionBinding|undefined>;
   setHostSessionResolver(resolver:NonNullable<ConversationPort['hostSessionResolver']>):void {this.hostSessionResolver=resolver;}
   bindHostSession(conversationId: string, binding: HostSessionBinding): void {
-    this.get(conversationId);
-    this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)")
-      .run(`host-session:${conversationId}`, JSON.stringify(binding));
+    this.store.transaction(()=> {
+      this.get(conversationId);
+      this.management.prepareNativeBinding(conversationId,binding);
+      this.store.database.prepare("INSERT OR REPLACE INTO account_metadata(key,value) VALUES (?,?)")
+        .run(`host-session:${conversationId}`, JSON.stringify(binding));
+    });
   }
 
   private nativeCancellations(conversationId:string): Array<{key:string;boundary:NativeCancellationBoundary}> {
@@ -73,6 +78,7 @@ export class ConversationPort {
     try {
       const binding=this.workflow.get<HostSessionBinding>(`host-session:${conversationId}`);
       if (!binding) return;
+      if (readNativeSessionState(binding)) this.management.rememberNativeSession(conversationId,binding);
       const watermark=nativeHistoryWatermark(binding);
       if (watermark) this.workflow.put(`native-checkpoint:${conversationId}`,{...binding,watermark});
     } catch { /* Keep the last trusted checkpoint. */ }
@@ -244,16 +250,17 @@ export class ConversationPort {
     private readonly audit: AuditStore,
     private readonly events: EventStore,
     private readonly policy: AttachmentPolicy = DEFAULT_ATTACHMENT_POLICY,
-  ) { this.workflow = new ConversationWorkflow(store,events); }
+  ) { this.workflow = new ConversationWorkflow(store,events); this.management = new ConversationManagement(store,this,events); }
 
   list(): ConversationRecord[] {
     const rows = this.store.database
       .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations ORDER BY conversation_id")
       .all() as Record<string, unknown>[];
-    return rows.map((row) => this.mapConversation(row));
+    return rows.filter(row=>!this.management.state(String(row.conversation_id)).deleted).map((row) => this.mapConversation(row));
   }
 
   get(conversationId: string): ConversationRecord {
+    this.management.requireVisible(conversationId);
     const row = this.store.database
       .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations WHERE conversation_id = ?")
       .get(conversationId) as Record<string, unknown> | undefined;
@@ -278,6 +285,7 @@ export class ConversationPort {
     const existing = this.store.database.prepare("SELECT * FROM conversations WHERE client_conversation_id=?").get(input.clientConversationId) as Record<string,unknown> | undefined;
     if (existing) {
       const conversation = this.mapConversation(existing);
+      this.management.requireVisible(conversation.conversationId);
       if (conversation.title !== (input.title ?? null)) throw new Error("IDEMPOTENCY_CONFLICT");
       return conversation;
     }
@@ -313,6 +321,7 @@ export class ConversationPort {
     now?: Date;
     emitQueued?: boolean;
   }>): AcceptedMessage {
+    this.management.requireWritable(input.conversationId);
     return this.store.transaction(() => {
       const conversation = this.store.database
         .prepare("SELECT conversation_id FROM conversations WHERE conversation_id = ?")
@@ -469,6 +478,7 @@ export class ConversationPort {
       const message = this.updateMessageStatus(messageId, "delivered", null, correlationId, now);
       for (const mid of this.workflow.forMessage(messageId)?.messageIds ?? []) if (mid !== messageId) this.updateMessageStatus(mid,"delivered",null,correlationId,now);
       for (const attachmentId of message.attachmentIds) this.attachments.markDelivered(attachmentId, now);
+      this.checkpointHostHistory(message.conversationId);
       return message;
     });
   }
@@ -636,6 +646,7 @@ export class ConversationPort {
     correlationId: string;
     now?: Date;
   }>): ConversationRecord {
+    this.management.requireVisible(input.conversationId);
     return this.store.transaction(() => {
       const row = this.store.database
         .prepare("SELECT conversation_id, client_conversation_id, title FROM conversations WHERE conversation_id = ?")
@@ -644,6 +655,7 @@ export class ConversationPort {
       this.store.database
         .prepare("UPDATE conversations SET title = ? WHERE conversation_id = ?")
         .run(input.title, input.conversationId);
+      this.management.touch(input.conversationId,input.now);
       this.audit.append({
         eventType: "conversation.title.updated",
         actor: { accountId: this.accountId },

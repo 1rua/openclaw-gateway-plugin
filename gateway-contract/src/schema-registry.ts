@@ -27,6 +27,10 @@ export type GatewaySchemaName =
   | "session.pairing"
   | "session.pairingSummary"
   | "conversation.create"
+  | "conversation.organization"
+  | "conversation.organizationReplace"
+  | "conversation.archive"
+  | "conversation.listPage"
   | "conversation.commandCatalog"
   | "conversation.generationCancel"
   | "conversation.mirrorSync"
@@ -79,6 +83,10 @@ const definitions: Record<GatewaySchemaName, readonly [SchemaDocument, string]> 
   "session.pairing": [sessionDocument as SchemaDocument, "pairing"],
   "session.pairingSummary": [sessionDocument as SchemaDocument, "pairingSummary"],
   "conversation.create": [conversationDocument as SchemaDocument, "create"],
+  "conversation.organization": [conversationDocument as SchemaDocument, "organization"],
+  "conversation.organizationReplace": [conversationDocument as SchemaDocument, "organizationReplace"],
+  "conversation.archive": [conversationDocument as SchemaDocument, "archive"],
+  "conversation.listPage": [conversationDocument as SchemaDocument, "listPage"],
   // The catalog and mirror-sync request shapes live in conversation.schema.json.
   // command-catalog.schema.json and conversation-snapshot.schema.json describe the
   // discovery response and the snapshot response, which are not GatewaySchemaName

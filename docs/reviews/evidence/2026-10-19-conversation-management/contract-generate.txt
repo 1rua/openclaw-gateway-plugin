@@ -1,0 +1,5 @@
+
+> @open-android-intelligence/openclaw@1.1.0 contract:generate
+> python3 tools/generate-contract-snapshot.py --output /workspace/gateway-sync/tmp/openclaw/generated-contract
+
+已从契约 pin f0b3f1bd4f6f3301b820e38c9f3241bcac05cd10 生成快照：/workspace/gateway-sync/tmp/openclaw/generated-contract/gateway-contract

@@ -18,7 +18,7 @@
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/utcMillis"
         },
         "type": {
-          "$comment": "Event type is carried by the validated SSE event line (contract §9); this mirror is optional and lists the V2 event types.",
+          "$comment": "Event type is carried by the validated SSE event line (contract \u00a79); this mirror is optional and lists the V2 event types.",
           "type": "string",
           "enum": [
             "conversation.message.delta",
@@ -33,7 +33,9 @@
             "pairing.grant.changed",
             "session.revoked",
             "attachment.acknowledged",
-            "gateway.notice"
+            "gateway.notice",
+            "conversation.updated",
+            "conversation.organization.updated"
           ]
         },
         "payload": {
@@ -43,7 +45,7 @@
       }
     },
     "sessionRevokedPayload": {
-      "$comment": "Normative copy for eventType 'session.revoked' (contract §9). Notification only.",
+      "$comment": "Normative copy for eventType 'session.revoked' (contract \u00a79). Notification only.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -59,7 +61,7 @@
       }
     },
     "pairingGrantChangedPayload": {
-      "$comment": "Normative copy for eventType 'pairing.grant.changed' (contract §9/§11). Notification only: the event must never widen the Android-local authoritative grant record; decisions still travel the request path and stale revisions still return GRANT_STALE.",
+      "$comment": "Normative copy for eventType 'pairing.grant.changed' (contract \u00a79/\u00a711). Notification only: the event must never widen the Android-local authoritative grant record; decisions still travel the request path and stale revisions still return GRANT_STALE.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -95,7 +97,7 @@
       }
     },
     "conversationMessagePayload": {
-      "$comment": "消息正文为累积 upsert；parts 为封闭的文本和附件联合，纯附件的空正文合法。附件字节不进入事件。",
+      "$comment": "\u6d88\u606f\u6b63\u6587\u4e3a\u7d2f\u79ef upsert\uff1bparts \u4e3a\u5c01\u95ed\u7684\u6587\u672c\u548c\u9644\u4ef6\u8054\u5408\uff0c\u7eaf\u9644\u4ef6\u7684\u7a7a\u6b63\u6587\u5408\u6cd5\u3002\u9644\u4ef6\u5b57\u8282\u4e0d\u8fdb\u5165\u4e8b\u4ef6\u3002",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -317,7 +319,7 @@
       }
     },
     "deviceRequestedEventPayload": {
-      "$comment": "Normative copy for eventType 'device.requested' (contract §9). Both hosts emit this event, but they currently disagree on width: Hermes mirrors the full request (device-request.schema.json#/$defs/request) while OpenClaw emits { requestId, risk, grantRevision }. Required is therefore the intersection; the remaining request fields are optional. parameters stays an open object because capability sub-schemas dispatch by id/version.",
+      "$comment": "Normative copy for eventType 'device.requested' (contract \u00a79). Both hosts emit this event, but they currently disagree on width: Hermes mirrors the full request (device-request.schema.json#/$defs/request) while OpenClaw emits { requestId, risk, grantRevision }. Required is therefore the intersection; the remaining request fields are optional. parameters stays an open object because capability sub-schemas dispatch by id/version.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -392,7 +394,7 @@
       }
     },
     "deviceRequestCancelRequestedPayload": {
-      "$comment": "Normative copy for eventType 'device.request.cancel.requested' (contract §9).",
+      "$comment": "Normative copy for eventType 'device.request.cancel.requested' (contract \u00a79).",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -405,7 +407,7 @@
       }
     },
     "attachmentAcknowledgedPayload": {
-      "$comment": "Normative copy for eventType 'attachment.acknowledged' (contract §9).",
+      "$comment": "Normative copy for eventType 'attachment.acknowledged' (contract \u00a79).",
       "type": "object",
       "additionalProperties": false,
       "required": [

@@ -1,0 +1,492 @@
+[
+  {
+    "vectorId": "request-target-sort",
+    "operation": "request.target",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:a34fc67660a259d84f5646d06bb0e8abccbaaf3a62d2eede402cf298c896720a"
+  },
+  {
+    "vectorId": "request-target-invalid-query",
+    "operation": "request.target",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:c5a74bc3bbe2d84f9f11c98b33bde03dd10025f1cb8e2eb8d30c7a0c52312a37"
+  },
+  {
+    "vectorId": "request-signature-oracle",
+    "operation": "request.signature",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:1c9ee950fed8afdce4e97b1b956d9116e633bc98702885d4bf308d898e643856"
+  },
+  {
+    "vectorId": "request-signature-nonempty-body",
+    "operation": "request.signature",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:4c85e04317c3bed0a52272c01a66511c80cba4f57233c7311126d23d910c347a"
+  },
+  {
+    "vectorId": "request-signature-noncanonical",
+    "operation": "request.signature",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:78ce58f8590d1399bcb80fc3b42b2b6d828be711e6ecd90dec4483670b690f9f"
+  },
+  {
+    "vectorId": "protocol-negotiate-request-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:94c778cfa626d7e9e42f0e8321de7f8442288e804472d213739da17cac8ea75b"
+  },
+  {
+    "vectorId": "protocol-negotiate-request-invalid-major",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:4bcb45814bf3be4e4a8de6b731eca97ff321f32254e3b3486795b7f6cedb898f"
+  },
+  {
+    "vectorId": "protocol-negotiate-response-declares-agent-command-new",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:6b42d5e5c589dd28c10e404728159ee6f5fed0dd6cb2a93e7661eb83a2c5c4a6"
+  },
+  {
+    "vectorId": "protocol-negotiate-response-unknown-conversation-ui-is-rejected",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:07e05d622ec5071c4fc5391bcbd8b61a78ecbcc3ef1dcc8abeec65dee87bc2f7"
+  },
+  {
+    "vectorId": "protocol-negotiate-explicit-plaintext-null-tls-identity",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:3bc19befba1979651160b54f011a5d0dc2d116ff5bcc0a5e87643873899e27c7"
+  },
+  {
+    "vectorId": "protocol-negotiate-zero-tls-identity-is-not-a-certificate",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:a30613b32a99c32b011a86b48f15af9ef6c4d8b88a239494bbe9707eabce61bf"
+  },
+  {
+    "vectorId": "auth-session-logout-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:be7c84e048e9ebf459e22f13afc0ce7b2c7bcbacd44dbb31512078d8eff42a26"
+  },
+  {
+    "vectorId": "auth-session-logout-unknown-field",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:ac3631102f75f0722457aa131b4af14b2b5b64b0155e52380a076c8410016382"
+  },
+  {
+    "vectorId": "auth-session-unpair-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:94732cadcb0a792161c5ee0c109164204d4ea31f221bdca7c516ba8cb7ee8d03"
+  },
+  {
+    "vectorId": "auth-session-unpair-missing-field",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:d06e7fda8572700982f11c074ed14853d5b57f6296590b0531d8504ef873d4f4"
+  },
+  {
+    "vectorId": "auth-session-pairing-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:e6f690334e8fc92077b5f0496ea6c81550914b2ee340694da706d6941912bda6"
+  },
+  {
+    "vectorId": "auth-session-pairing-summary-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:d5076c526d9d6151eb27fc164e2ff9c622a9e06f7d2f864f880899230615c666"
+  },
+  {
+    "vectorId": "auth-session-pairing-summary-unknown-field",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:7267159c637d109896fa54de883ec165bb667d2d136117ecc5ac00b0d0af5cb0"
+  },
+  {
+    "vectorId": "auth-session-revoked-payload-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:9cd06bc7241daa0d8a16feac5b6da6c64c9536f59cdc4cedafc2448e5f2c1b45"
+  },
+  {
+    "vectorId": "auth-session-revoked-payload-unknown-field",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:908a998c350bc616bb1f8f8becdbbc748e59899592993d22a268ccfc56324f89"
+  },
+  {
+    "vectorId": "auth-session-grant-changed-payload-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:b182843732745d8ccec97efe43e2efc70cc6e0e7fbdfd148af14f6aeb6b280e0"
+  },
+  {
+    "vectorId": "auth-session-grant-changed-payload-missing-revision",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:90ebb5218cbfe8df33d35eee1703f80097483fb4db9ad58e00841c124e6a62b8"
+  },
+  {
+    "vectorId": "auth-session-password-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:fec47044be530a1c29ef620401f5c28242df666c0f4c208799e85530026d904a"
+  },
+  {
+    "vectorId": "auth-session-device-invalid-signature",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:772ab7b94de46b10672871ed1e7b890256d09cee38fb164b6142c939c7c95550"
+  },
+  {
+    "vectorId": "auth-session-refresh-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:6d238f9be46baa87427906006c12501c09dc5f9dfc24b2771e614b546a0fd761"
+  },
+  {
+    "vectorId": "attachment-schema-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:a9aa4c0b714f8406d4e87d6e56a6fb920709982e12a698121e679e02448e27c6"
+  },
+  {
+    "vectorId": "attachment-schema-invalid-digest-case",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:6c397a4e620a704349515b62132e6c97f558a9a48e65a239e90ff5aaccbd4e3d"
+  },
+  {
+    "vectorId": "attachment-transition-begin-upload",
+    "operation": "attachment.transition",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:4aab3d83e7e8ce1ee59780ae8e055133db82be2620566e0962905c4945187263"
+  },
+  {
+    "vectorId": "attachment-transition-invalid-verify-before-upload",
+    "operation": "attachment.transition",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:52e6bd786611f28399f1d90400863f0e041cd2fde41ea94f584c9417722805d3"
+  },
+  {
+    "vectorId": "sse-event-gateway-notice-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:8ff31793cdb0dc02538b26dbf9d03b581c4444a89334098784f06667ebfee60d"
+  },
+  {
+    "vectorId": "sse-event-payload-unknown-field",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:a5ab09513fccf0447580e59bec99fbba4f1c7daae6147a5ed385a355e2dd1c8f"
+  },
+  {
+    "vectorId": "sse-event-conversation-command-result-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:3332c1974ff86f23d5461b5b68d177186bba22bd2fe428f6095096a56393357c"
+  },
+  {
+    "vectorId": "sse-event-conversation-command-result-without-new-conversation-is-rejected",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:5b151a9ed44639391d17ae9ba705b1b738bc0feb99d636621fa8465252ca44f9"
+  },
+  {
+    "vectorId": "sse-event-conversation-approval-requested-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:9a7013646fdfa19d00bfd5c4531f3b6f47feb18c376b88d422a4d1a365217f05"
+  },
+  {
+    "vectorId": "sse-event-conversation-approval-requested-unknown-choice-is-rejected",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:b77732b738492dc5d2d1bc58882fe088031b07a7088f8f7e18c265fc9c8b243b"
+  },
+  {
+    "vectorId": "sse-event-conversation-approval-resolved-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:cc6d8f800737a130ab4656edd1c7136ef1a81ce95ee7cf1b3255464722992266"
+  },
+  {
+    "vectorId": "sse-event-conversation-approval-resolved-unknown-decision-is-rejected",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:2dbd26f7f7f0806a92e0e5defb4b89b5736d3986c6e0dfdd91c4c65e362f94e6"
+  },
+  {
+    "vectorId": "sse-event-message-delta-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:db1c2b31eff72cc7e7ead41252d88b9f8144d234cd450aa76b1333375f5f8f46"
+  },
+  {
+    "vectorId": "sse-event-message-delta-unknown-field",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:d17f7d6e56b0e906c2d4f069cd9ec30b7e40b5f660f6a31028790609ab601925"
+  },
+  {
+    "vectorId": "sse-event-message-completed-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:9267655725b107b179afb61f363b8778d4a3ae753fd6f2157167a208e936daf1"
+  },
+  {
+    "vectorId": "sse-event-title-updated-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:b64b5ec4b93a35eb4831b4ff4c07b604b9f27cecd4f1191eecf9deb3c41cff6b"
+  },
+  {
+    "vectorId": "sse-event-title-updated-missing-new-title",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:8a24ea01ab413b007f7e91922440a0a0da403781c1bfd17157968c055ac6801b"
+  },
+  {
+    "vectorId": "sse-event-device-requested-openclaw-minimum-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:ddd604bba348159330b34e709a527a23c8fbf01c1520127103c7c4a30971b1c2"
+  },
+  {
+    "vectorId": "sse-event-device-requested-hermes-full-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:bb75e8bef8713b2718de207ef2ce6f24a584a9f020f17affd48749fa90eaca2c"
+  },
+  {
+    "vectorId": "sse-event-device-requested-unknown-risk",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:ba018c3a15715093a23ed6d299a7be8c650e71ceb2cbb2d68f2c25047d5c0d7e"
+  },
+  {
+    "vectorId": "sse-event-device-request-cancel-requested-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:99848a31a02702d7fc156c1b3d6621701297add86ec2fa2dc06933ab249220c4"
+  },
+  {
+    "vectorId": "sse-event-pairing-grant-changed-dispatched-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:bc42fea79a1c2c9be4f403c9bb68d7863f7f3211acb724d164f6dd45b67fc33f"
+  },
+  {
+    "vectorId": "sse-event-session-revoked-dispatched-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:65932dc9f586486dc2230e7c3c474e3632c4ff59f14a774346004f498f5149e6"
+  },
+  {
+    "vectorId": "sse-event-attachment-acknowledged-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:47f2cc0853d58bf77c3a6abeb9cc495d23f495c416569f2afedd402d36611297"
+  },
+  {
+    "vectorId": "sse-event-attachment-acknowledged-unknown-field",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:b14977ac0581139cc6abc62f999c96b662141aa4e0f2b82b5f7c965291b7bb84"
+  },
+  {
+    "vectorId": "sse-event-message-status-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:38a2eab8daee9c31e03f53b9eb6956a080923410b6f66e985a58afe7be1ad5eb"
+  },
+  {
+    "vectorId": "sse-event-message-status-unknown-field",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:a49996e03f8dcef1f57002211d032ff7548a88c1625ace04074000d00093c1ac"
+  },
+  {
+    "vectorId": "sse-event-message-completed-attachment-only",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:5eda4a56f30fb030949bbed051a22860b6689ded567fe3ecb1fdcce8749fada4"
+  },
+  {
+    "vectorId": "sse-event-message-completed-attachment-unknown-field",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:6b9efffafcb5ece16f5c6ff9ef68565abffc836be9641f20cc98b9571ba75926"
+  },
+  {
+    "vectorId": "sse-event-message-completed-attachment-negative-size",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:0ff353eaab8f8a2b73a3ef1b80bac488b1011663eb6d1a4652031986a4933532"
+  },
+  {
+    "vectorId": "sse-event-message-completed-attachment-invalid-digest",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:5166b1984ba7dd42d142f42974c0786e9322b9a677e06b7e5cf236ea1d740d6d"
+  },
+  {
+    "vectorId": "device-result-valid-succeeded-with-data",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:d0edf2f98c6f5059e632006fa3ff5d063ebd0e14cd9b121d0631d7b2e511b67e"
+  },
+  {
+    "vectorId": "device-result-valid-outcome-unknown-without-data",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:ab494c4e8a9b26400df3ba42c716785bb40cf96b4bf792a17953764d0641dac3"
+  },
+  {
+    "vectorId": "device-result-unknown-outcome",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:4eaba4082a2f06faf4fa30cc13c0259247e302bb6ed41ffed9f142af9fa9c328"
+  },
+  {
+    "vectorId": "device-result-outcome-unknown-with-data",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:50b9286681801dea1f6801b857243f21d0e7c73926971e3d605c67131370306d"
+  },
+  {
+    "vectorId": "device-result-request-valid",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:9e35cc067475c963f0033319c34e1815bd9e9e5c4e6c9275f1c01109bcebfbfb"
+  },
+  {
+    "vectorId": "device-result-request-unknown-field",
+    "operation": "schema.validate",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:ab847d579f3e0b28ad90d854ce911ec13580d6d8f2de344aa7a8e1cfbaa95c9c"
+  },
+  {
+    "vectorId": "device-dispatch-sms-query-valid",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:686a2758f77cdc3040f65065e1a58375af74ee936e5fe02bce1ab4378146ceff"
+  },
+  {
+    "vectorId": "device-dispatch-sms-query-invalid-parameters",
+    "operation": "schema.validate_dispatched",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:f0519ba9e762751098c154578e71be098d7810d5c6f7b42b80a45bab87407633"
+  },
+  {
+    "vectorId": "device-transition-claim-pending",
+    "operation": "device.transition",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:65450c68a6be5b74fc0dfc755620c8b95cf78e9c51ddf4a5025e50710ef6ac9a"
+  },
+  {
+    "vectorId": "device-transition-invalid-result-before-claim",
+    "operation": "device.transition",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:74c32e863446783a5c1e877f0f4f84ee8b883ceb8c9dabca4ab20aac1dbded83"
+  },
+  {
+    "vectorId": "device-queue-read",
+    "operation": "device.maximum_queue_seconds",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:5edd150ae5e38df79361310d1139e46a6dbaa875e2f05d41f4a1f45d9e30681c"
+  },
+  {
+    "vectorId": "device-queue-sync",
+    "operation": "device.maximum_queue_seconds",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:fab6d3e7e1e9f4ca989f69aaad7cdee34c5633298095ae04e61ffccfcfa87f45"
+  },
+  {
+    "vectorId": "device-queue-write",
+    "operation": "device.maximum_queue_seconds",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:355bca978d10789e76f1c9a9087a0443ad69ec90ec9e4a255c0187499e424231"
+  },
+  {
+    "vectorId": "device-queue-high-privilege-ephemeral",
+    "operation": "device.maximum_queue_seconds",
+    "implementation": "openclaw-typescript",
+    "status": "pass",
+    "resultHash": "sha256:a6ff1d3080b2d135634eae48098787aa9ac28d3c75d97648a7eaf763c2598546"
+  }
+]

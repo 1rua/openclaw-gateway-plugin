@@ -1,0 +1,81 @@
+{
+  "formatVersion": "1.0.0",
+  "protocolVersion": "2.1",
+  "vectorSet": "conversation-ui",
+  "cases": [
+    {
+      "id": "conversation-ui-catalog",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "conversation.commandCatalog",
+        "value": {
+          "commands": [
+            {
+              "command": "/new",
+              "description": "Start a new conversation thread",
+              "argumentHint": "[title]"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "id": "conversation-ui-cancel",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "conversation.generationCancel",
+        "value": {
+          "clientMessageId": "msg_cancel_1"
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "id": "conversation-ui-mirror",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "conversation.mirrorSync",
+        "value": {
+          "conversationId": "conv_mirror_1",
+          "sinceSeq": 0
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "id": "conversation-ui-attachment-status",
+      "operation": "schema.validate",
+      "input": {
+        "schemaName": "attachment.status",
+        "value": {
+          "attachmentId": "att_test_1",
+          "status": "staged",
+          "sizeBytes": 2048,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expected": {
+        "outcome": "value",
+        "value": {
+          "valid": true
+        }
+      }
+    }
+  ]
+}

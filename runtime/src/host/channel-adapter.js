@@ -1,3 +1,4 @@
+import { readNativeSessionState } from "./native-history.js";
 import { resolveGatewayHostSession } from "./host-session.js";
 import { abortTrackedTurn } from "./active-turns.js";
 import { registerDeviceTools } from "./device-tools.js";
@@ -238,10 +239,10 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
         tlsSpkiSha256: typeof api.pluginConfig?.["tlsSpkiSha256"] === "string" ? api.pluginConfig["tlsSpkiSha256"] : undefined,
     });
     const nativeGateway = api.runtime?.gateway;
+    const runtime = asInboundRuntime(api.runtime?.channel);
     let activeChannelAccountId = "default";
     let activeConfig = api.config;
     if (typeof nativeGateway?.request === "function") {
-        const runtime = asInboundRuntime(api.runtime?.channel);
         services.core.setCommandCatalogProvider?.(async () => {
             if (!runtime)
                 throw new Error("AGENT_UNAVAILABLE");
@@ -272,6 +273,43 @@ export const registerOpenAndroidIntelligenceGateway = (api) => {
                 return binding;
             });
     }
+    if (runtime && typeof nativeGateway?.request === "function")
+        services.core.setHostConversationManager?.(async (accountId, conversationId, operation, archived) => {
+            const account = await services.core.openGatewayAccount(accountId);
+            let binding;
+            try {
+                binding = account.conversations.workflow.get(`host-session:${conversationId}`);
+            }
+            finally {
+                account.close();
+            }
+            const trusted = await resolveGatewayHostSession(runtime, activeConfig, activeChannelAccountId, accountId, conversationId, binding);
+            const before = readNativeSessionState(trusted);
+            if (!before) {
+                if (operation === "delete")
+                    return;
+                throw new Error("HOST_INCOMPATIBLE");
+            }
+            if (operation === "archive" && before.archived === archived)
+                return;
+            try {
+                // Both native methods enter OpenClaw's runExclusiveSessionLifecycleMutation.
+                // Delete preconditions prevent a racing host reset selecting another session.
+                const result = await nativeGateway.request(operation === "delete" ? "sessions.delete" : "sessions.patch", { key: trusted.sessionKey, agentId: trusted.agentId, ...(operation === "archive" ? { archived } : {
+                        deleteTranscript: true, ...(before.sessionId ? { expectedSessionId: before.sessionId } : {}),
+                        ...(before.lifecycleRevision ? { expectedLifecycleRevision: before.lifecycleRevision } : {}),
+                        ...(before.nativeUpdatedAt !== undefined ? { expectedSessionUpdatedAt: before.nativeUpdatedAt } : {}),
+                    }) }, { timeoutMs: 8000 });
+                if (result.ok !== true || result.key?.toLowerCase() !== trusted.sessionKey.toLowerCase())
+                    throw new Error("OUTCOME_UNKNOWN");
+            }
+            catch (error) {
+                const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : "";
+                if (/active run|still active|changed before|not archived/iu.test(message))
+                    throw new Error("CONVERSATION_BUSY");
+                throw new Error("OUTCOME_UNKNOWN");
+            }
+        });
     if (typeof nativeGateway?.request === "function")
         services.core.setGenerationCanceller?.(async (accountId, conversationId, generationId) => {
             const account = await services.core.openGatewayAccount(accountId);

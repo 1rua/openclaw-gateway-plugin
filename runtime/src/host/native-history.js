@@ -133,3 +133,23 @@ export const nativeAssistantSnapshot = (binding) => {
         throw error;
     }
 };
+/** Read lifecycle flags only from a server-created, account-bound SDK route. */
+export const readNativeSessionState = (binding) => {
+    let store;
+    try {
+        store = JSON.parse(readFileSync(binding.storePath, "utf8"));
+    }
+    catch (error) {
+        if (error.code === "ENOENT")
+            return undefined;
+        throw new Error("HOST_INCOMPATIBLE");
+    }
+    const entry = store[binding.sessionKey] ?? Object.entries(store).find(([key]) => key.toLowerCase() === binding.sessionKey.toLowerCase())?.[1];
+    if (!entry)
+        return undefined;
+    const timestamp = typeof entry.updatedAt === "number" ? entry.updatedAt : undefined;
+    return { archived: typeof entry.archivedAt === "number",
+        ...(typeof entry.sessionId === "string" ? { sessionId: entry.sessionId } : {}),
+        ...(typeof entry.lifecycleRevision === "string" ? { lifecycleRevision: entry.lifecycleRevision } : {}),
+        ...(timestamp !== undefined && Number.isFinite(timestamp) ? { updatedAt: new Date(timestamp).toISOString(), nativeUpdatedAt: timestamp } : {}) };
+};

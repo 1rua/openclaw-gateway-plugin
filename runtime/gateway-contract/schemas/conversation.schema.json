@@ -5,29 +5,41 @@
     "create": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["clientConversationId"],
+      "required": [
+        "clientConversationId"
+      ],
       "properties": {
         "clientConversationId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
-        "title": { "type": "string" }
+        "title": {
+          "type": "string"
+        }
       }
     },
     "messageCreate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["clientMessageId", "text", "attachments"],
+      "required": [
+        "clientMessageId",
+        "text",
+        "attachments"
+      ],
       "properties": {
         "clientMessageId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
-        "text": { "type": "string" },
+        "text": {
+          "type": "string"
+        },
         "attachments": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["attachmentId"],
+            "required": [
+              "attachmentId"
+            ],
             "properties": {
               "attachmentId": {
                 "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
@@ -40,21 +52,31 @@
     "commandCatalog": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["commands"],
+      "required": [
+        "commands"
+      ],
       "properties": {
         "commands": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["command", "description"],
+            "required": [
+              "command",
+              "description"
+            ],
             "properties": {
               "command": {
                 "type": "string",
                 "pattern": "^/[a-z0-9_-]+$"
               },
-              "description": { "type": "string", "minLength": 1 },
-              "argumentHint": { "type": "string" }
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "argumentHint": {
+                "type": "string"
+              }
             }
           }
         }
@@ -63,7 +85,9 @@
     "generationCancel": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["clientMessageId"],
+      "required": [
+        "clientMessageId"
+      ],
       "properties": {
         "clientMessageId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
@@ -73,12 +97,227 @@
     "mirrorSync": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["conversationId", "sinceSeq"],
+      "required": [
+        "conversationId",
+        "sinceSeq"
+      ],
       "properties": {
         "conversationId": {
           "$ref": "https://open-android-intelligence.dev/schemas/gateway/v2/envelope.schema.json#/$defs/opaqueId"
         },
-        "sinceSeq": { "type": "integer", "minimum": 0 }
+        "sinceSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "organization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "sortMode",
+        "customOrder",
+        "folders",
+        "assignments"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sortMode": {
+          "enum": [
+            "updated-desc",
+            "custom"
+          ]
+        },
+        "customOrder": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          }
+        },
+        "folders": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "folderId",
+              "name"
+            ],
+            "properties": {
+              "folderId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^\\S(?:[^\\r\\n]*\\S)?$"
+              }
+            }
+          }
+        },
+        "assignments": {
+          "type": "object",
+          "maxProperties": 100000,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          }
+        }
+      }
+    },
+    "organizationReplace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedRevision",
+        "sortMode",
+        "customOrder",
+        "folders",
+        "assignments"
+      ],
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sortMode": {
+          "enum": [
+            "updated-desc",
+            "custom"
+          ]
+        },
+        "customOrder": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          }
+        },
+        "folders": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "folderId",
+              "name"
+            ],
+            "properties": {
+              "folderId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^\\S(?:[^\\r\\n]*\\S)?$"
+              }
+            }
+          }
+        },
+        "assignments": {
+          "type": "object",
+          "maxProperties": 100000,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+          }
+        }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archived"
+      ],
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        }
+      }
+    },
+    "managedRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conversationId",
+        "clientConversationId",
+        "title",
+        "archived",
+        "updatedAt"
+      ],
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+        },
+        "clientConversationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._~-]{1,128}$"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "listPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conversations",
+        "nextCursor",
+        "snapshotRevision"
+      ],
+      "properties": {
+        "conversations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/managedRecord"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshotRevision": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     }
   }
